@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>有内鬼 · 聊天室</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="container" id="app" style="padding-bottom:0;">
+
+  <!-- 断线提示 -->
+  <div id="disconnectedBanner" class="disconnected-banner hidden">⚠️ 网络断开，正在重连...</div>
+
+  <!-- 销毁后状态 -->
+  <div id="destroyedView" class="hidden">
+    <div class="empty-state">
+      <div class="big-icon">🔥</div>
+      <h2 style="margin-bottom:8px;">会话已销毁</h2>
+      <p style="color:#888; margin-bottom:24px;">所有数据已永久清除</p>
+      <a class="btn btn-primary" href="/">返回首页</a>
+    </div>
+  </div>
+
+  <!-- 聊天室 -->
+  <div id="chatView" class="hidden">
+    <div class="chat-header">
+      <div class="topbar" style="margin-bottom:4px;">
+        <div class="row grow">
+          <a href="/" class="btn btn-outline" style="width:auto; padding:6px 12px; font-size:0.85rem; margin:0;">← 离开</a>
+        </div>
+        <div class="countdown" id="countdown">--:--</div>
+      </div>
+      <h2 id="roomTopic" style="font-size:0.95rem; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></h2>
+      <div class="member-list" id="memberList"></div>
+    </div>
+
+    <div class="chat-area" id="chatArea">
+      <!-- 消息 JS 动态渲染 -->
+    </div>
+
+    <div class="input-area">
+      <textarea id="msgInput" rows="1" placeholder="说点什么...（Enter 发送，Shift+Enter 换行）" maxlength="2000"></textarea>
+      <button class="btn btn-primary send-btn" id="sendBtn">发送</button>
+    </div>
+
+    <!-- 底部操作栏 -->
+    <div style="display:flex; gap:8px; padding:8px 0 16px;">
+      <button class="btn btn-outline" style="margin:0; flex:1; padding:8px;" onclick="exportMarkdown()">📄 导出 Markdown</button>
+      <button class="btn btn-outline btn-danger" style="margin:0; flex:1; padding:8px;" onclick="showDestroyConfirm()">🚨 结束会话</button>
+    </div>
+  </div>
+
+  <!-- 结束会话二次确认弹窗 -->
+  <div id="destroyModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>🚨 确定要结束会话吗？</h3>
+      <p>结束后将立即删除所有消息数据，所有成员断开，双方都无法再发送或导出内容。<br><br>你已经做好的 Markdown 导出文件仍然保存在本地。<br><br><strong style="color:#e74c3c;">此操作不可撤销。</strong></p>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline" style="margin:0; flex:1;" onclick="hideDestroyConfirm()">取消</button>
+        <button class="btn btn-danger" style="margin:0; flex:1;" onclick="confirmDestroy()">确定结束</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  // ============ 状态 ============
+  const state = {
+    roomId: null,
+    user: null,
+    room: null,
+    ws: null,
+    connected: false,
+    destroyed: false,
+    timerInterval: null,
+  };
+
+  // ============ 初始化 ============
+  async function init() {
+    const user = await api.get('/auth/me');
+    if (!user || !user.id) { window.location.href = '/'; return; }
+    state.user = user;
+
+    const params = new URLSearchParams(location.search);
+    const roomId = params.get('room');
+    if (!roomId) { window.location.href = '/'; return; }
+    state.roomId = roomId;
+
+    // 先 REST 拿到房间信息
+    try {
+      const r = await api.get(`/rooms/${roomId}`);
+      if (!r.ok || !r.room || r.room.status !== 'active') {
+        showDestroyed();
+        return;
+      }
+      state.room = r.room;
+      renderRoom(r.room);
+      state.room.messages.forEach(m => renderMsg(m));
+      startCountdown();
+
+      // 再加入会话（更新成员列表）
+      await api.post(`/rooms/${roomId}/join`);
+      renderMemberList();
+
+      // 连接 WebSocket
+      connectWS();
+    } catch (e) {
+      showDestroyed();
+    }
+  }
+
+  // ============ 渲染 ============
+  function renderRoom(room) {
+    document.getElementById('chatView').classList.remove('hidden');
+    document.getElementById('destroyedView').classList.add('hidden');
+    document.getElementById('roomTopic').textContent = room.topic;
+  }
+
+  function renderMemberList() {
+    const box = document.getElementById('memberList');
+    box.innerHTML = '';
+    for (const m of state.room.members) {
+      const chip = document.createElement('div');
+      chip.className = 'member-chip';
+      chip.innerHTML = `<img src="${m.avatar || '/img/default-avatar.svg'}" alt=""><span>${m.nickname}${m.id === state.room.creatorId ? ' 👑' : ''}</span>`;
+      box.appendChild(chip);
+    }
+  }
+
+  function startCountdown() {
+    if (state.timerInterval) clearInterval(state.timerInterval);
+    const el = document.getElementById('countdown');
+
+    const tick = () => {
+      if (state.destroyed) return;
+      const now = Date.now();
+      const remain = Math.max(0, state.room.destroyAt - now);
+      if (remain <= 0) return;
+
+      const totalSec = Math.floor(remain / 1000);
+      const d = Math.floor(totalSec / 86400);
+      const h = Math.floor((totalSec % 86400) / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      let text = '';
+      if (d > 0) text = `${d}天 ${h}h ${m}m`;
+      else if (h > 0) text = `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      else text = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      el.textContent = text;
+
+      el.classList.remove('warn', 'danger');
+      if (totalSec <= 60) el.classList.add('danger');
+      else if (totalSec <= 600) el.classList.add('warn');
+    };
+    tick();
+    state.timerInterval = setInterval(tick, 1000);
+  }
+
+  function renderMsg(msg) {
+    const area = document.getElementById('chatArea');
+
+    if (msg.type === 'system' || msg.type === 'reminder') {
+      const div = document.createElement('div');
+      div.className = `sys-msg ${msg.type === 'reminder' && msg.level === 'danger' ? 'danger' : (msg.level === 'warn' ? 'warn' : '')}`;
+      div.textContent = msg.content || msg.message;
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+      return;
+    }
+
+    const div = document.createElement('div');
+    div.className = `msg ${msg.sender_id === state.user.id ? 'own' : ''}`;
+    div.innerHTML = `
+      <img class="avatar" src="${msg.sender_avatar || '/img/default-avatar.svg'}" alt="">
+      <div>
+        <div class="bubble"></div>
+        <div class="meta">${msg.sender_nickname} · ${new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}</div>
+      </div>
+    `;
+    div.querySelector('.bubble').textContent = msg.content || msg.message || '';
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+  }
+
+  function showDestroyed() {
+    state.destroyed = true;
+    document.getElementById('chatView').classList.add('hidden');
+    document.getElementById('destroyedView').classList.remove('hidden');
+    if (state.timerInterval) clearInterval(state.timerInterval);
+    if (state.ws) state.ws.close();
+  }
+
+  // ============ WebSocket ============
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws?roomId=${state.roomId}&sid=${getCookie('connect.sid')}`;
+
+    try {
+      state.ws = new WebSocket(url);
+    } catch {
+      // 无 Redis 时后端不启用 WS
+      const area = document.getElementById('chatArea');
+      const div = document.createElement('div');
+      div.className = 'sys-msg warn';
+      div.textContent = '⚠️ WebSocket 不可用（Redis 未启动），请启动 Redis 后刷新页面';
+      area.appendChild(div);
+      return;
+    }
+
+    state.ws.onopen = () => {
+      state.connected = true;
+      document.getElementById('disconnectedBanner').classList.add('hidden');
+      state.ws.send(JSON.stringify({
+        type: 'hello',
+        userId: state.user.id,
+        nickname: state.user.nickname,
+        avatar: state.user.avatar,
+      }));
+    };
+
+    state.ws.onclose = () => {
+      state.connected = false;
+      if (!state.destroyed) {
+        document.getElementById('disconnectedBanner').classList.remove('hidden');
+        // 简单重连
+        setTimeout(() => connectWS(), 3000);
+      }
+    };
+
+    state.ws.onerror = () => {};
+
+    state.ws.onmessage = (ev) => {
+      let data;
+      try { data = JSON.parse(ev.data); } catch { return; }
+      handleWSMessage(data);
+    };
+  }
+
+  function handleWSMessage(data) {
+    switch (data.type) {
+      case 'chat':
+        renderMsg(data.message);
+        // 更新本地 room 消息数（刷新时用）
+        if (state.room) {
+          state.room.messages.push(data.message);
+        }
+        break;
+
+      case 'room_destroyed':
+        const nick = data.actorNickname ? `「${data.actorNickname}」` : '系统';
+        const div = document.createElement('div');
+        div.className = 'sys-msg danger';
+        div.textContent = `${nick} 已结束会话`;
+        document.getElementById('chatArea').appendChild(div);
+        showDestroyed();
+        break;
+
+      case 'member_left':
+        renderMsg({
+          type: 'system',
+          content: `「${data.member.nickname}」已退出会话`,
+        });
+        break;
+
+      case 'destroy_time_updated':
+        // 刷新 destroyAt
+        if (state.room) {
+          state.room.destroyAt = data.new_destroy_at;
+          startCountdown();
+        }
+        break;
+
+      case 'remind_1h':
+      case 'remind_10min':
+        renderMsg({ type: 'reminder', level: 'warn', message: data.message });
+        break;
+      case 'remind_1min':
+        renderMsg({ type: 'reminder', level: 'danger', message: data.message });
+        break;
+
+      case 'error':
+        if (data.error === 'room_destroyed') showDestroyed();
+        break;
+    }
+  }
+
+  // ============ 发送消息 ============
+  async function sendMessage() {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    // 如果 WebSocket 不可用，走 REST fallback
+    if (state.connected && state.ws) {
+      state.ws.send(JSON.stringify({ type: 'chat', content: text }));
+    } else {
+      // REST fallback：通过轮询实现（MVP 暂不做，直接提示）
+      alert('WebSocket 未连接，消息发送失败。请启动 Redis 后刷新页面。');
+      return;
+    }
+
+    input.value = '';
+    input.style.height = 'auto';
+  }
+
+  // ============ 结束会话 ============
+  function showDestroyConfirm() {
+    document.getElementById('destroyModal').classList.remove('hidden');
+  }
+  function hideDestroyConfirm() {
+    document.getElementById('destroyModal').classList.add('hidden');
+  }
+  async function confirmDestroy() {
+    hideDestroyConfirm();
+    try {
+      await api.post(`/rooms/${state.roomId}/destroy`);
+      // 销毁事件会通过 WS 推回来；如果没 WS，直接跳转
+      showDestroyed();
+    } catch (e) {
+      alert('结束会话失败');
+    }
+  }
+
+  // ============ Markdown 导出 ============
+  function exportMarkdown() {
+    if (state.destroyed) { alert('会话已销毁，无法导出'); return; }
+    const url = `/api/export/${state.roomId}`;
+    window.open(url, '_blank');
+  }
+
+  // ============ 输入区 ============
+  document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('msgInput');
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    });
+    document.getElementById('sendBtn').onclick = sendMessage;
+
+    // 离开时发送退出事件
+    window.addEventListener('beforeunload', async () => {
+      if (!state.destroyed && state.roomId) {
+        try { await api.post(`/rooms/${state.roomId}/leave`); } catch {}
+      }
+    });
+  });
+
+  // ============ 工具 ============
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/[-[\]/\\^$*+?.()|{}]/g, '\\$&')}=([^;]*)`));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  init();
+</script>
+</body>
+</html>

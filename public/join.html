@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>有内鬼 · 正在加入...</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="container" style="display:flex; align-items:center; justify-content:center;">
+  <div class="card center" style="width:100%;">
+    <div style="font-size:2rem; margin-bottom:12px;">⏳</div>
+    <h2 style="margin-bottom:8px;">正在加入会话...</h2>
+    <p class="muted" id="statusMsg">请稍候</p>
+    <p class="muted" style="margin-top:16px;">
+      <a href="/">返回首页</a>
+    </p>
+  </div>
+</div>
+
+<script>
+  async function init() {
+    const code = location.pathname.split('/').pop().toUpperCase();
+    const msg = document.getElementById('statusMsg');
+
+    // 检查登录
+    const user = await fetch('/auth/me').then(r => r.json());
+    if (!user || !user.id) {
+      // 存一下 redirect
+      sessionStorage.setItem('redirectAfterLogin', `/join/${code}`);
+      location.href = '/';
+      return;
+    }
+
+    // 查房间
+    msg.textContent = '正在查找会话...';
+    try {
+      const r = await fetch(`/api/rooms/by-code/${code}`).then(r => r.json());
+      if (!r.ok || !r.room) {
+        msg.innerHTML = '<span style="color:#e74c3c;">会话不存在或已销毁</span>';
+        return;
+      }
+      // 加入
+      msg.textContent = '正在加入...';
+      const joinRes = await fetch(`/api/rooms/${r.roomId}/join`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      }).then(r => r.json());
+
+      if (joinRes.ok) {
+        location.href = `/room.html?room=${r.roomId}`;
+      } else {
+        msg.innerHTML = `<span style="color:#e74c3c;">加入失败：${joinRes.message || joinRes.error}</span>`;
+      }
+    } catch (e) {
+      msg.innerHTML = '<span style="color:#e74c3c;">网络错误，请重试</span>';
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

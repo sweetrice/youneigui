@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>有内鬼 · 创建会话</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="container" id="app">
+
+  <div class="topbar">
+    <a href="/" class="btn btn-outline" style="width:auto; padding:6px 12px; font-size:0.85rem; margin:0;">← 返回</a>
+    <div class="title">创建会话</div>
+    <div style="width:60px;"></div>
+  </div>
+
+  <!-- 步骤 1：填写信息 -->
+  <div id="createForm">
+    <div class="card">
+      <label>会话主题</label>
+      <input type="text" id="topicInput" class="input" placeholder="如：XX项目说明书咨询" maxlength="50">
+      <div id="topicCount" class="muted" style="text-align:right; font-size:0.75rem;">0 / 50</div>
+
+      <label>销毁时间</label>
+      <div id="presetButtons" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+        <!-- JS 动态生成 -->
+      </div>
+      <div class="row">
+        <label style="margin:0;">自定义：</label>
+        <input type="number" id="customDays" class="input" style="width:80px; margin:0;" placeholder="天" min="1" max="30">
+        <span class="muted" style="margin:0;">天</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="createBtn" style="margin-top:24px;">🎬 创建会话</button>
+  </div>
+
+  <!-- 步骤 2：创建成功 -->
+  <div id="shareView" class="hidden">
+    <div class="card center">
+      <div style="font-size:2rem; margin-bottom:8px;">✅</div>
+      <h2 style="margin-bottom:16px;">会话已创建</h2>
+      <div class="qr-area" id="qrArea">
+        <!-- JS 生成二维码 -->
+      </div>
+    </div>
+
+    <div class="card">
+      <label>房间码</label>
+      <div class="row">
+        <code id="roomCode" style="flex:1; font-size:1.4rem; font-family:monospace; letter-spacing:4px; color:#e74c3c;"></code>
+        <button class="btn btn-outline" style="margin:0; width:auto; padding:8px 14px; font-size:0.85rem;" onclick="copyCode()">复制</button>
+      </div>
+
+      <label style="margin-top:16px;">短链接</label>
+      <div class="row">
+        <code id="shortLink" style="flex:1; font-size:0.85rem; word-break:break-all;"></code>
+        <button class="btn btn-outline" style="margin:0; width:auto; padding:8px 14px; font-size:0.85rem;" onclick="copyLink()">复制</button>
+      </div>
+    </div>
+
+    <a class="btn btn-primary" id="enterRoomBtn">👉 进入会话</a>
+  </div>
+
+</div>
+
+<script src="/js/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+  let selectedSeconds = null;
+  let presets = [];
+  let createdRoom = null;
+
+  async function init() {
+    // 验证登录
+    const user = await api.get('/auth/me');
+    if (!user || !user.id) { window.location.href = '/'; return; }
+
+    // 获取预设
+    const p = await api.get('/rooms/presets');
+    presets = p.presets;
+
+    // 渲染预设按钮
+    const box = document.getElementById('presetButtons');
+    for (const preset of presets) {
+      const btn = document.createElement('button');
+      btn.textContent = preset.label;
+      btn.className = 'btn btn-outline';
+      btn.style.cssText = 'width:auto; margin:0; padding:8px 14px; font-size:0.85rem;';
+      btn.onclick = () => selectPreset(btn, preset.seconds);
+      box.appendChild(btn);
+    }
+    // 默认选 24h
+    selectPreset(box.children[3], presets[3].seconds);
+
+    // 字数计数
+    const topicInput = document.getElementById('topicInput');
+    const countEl = document.getElementById('topicCount');
+    topicInput.addEventListener('input', () => {
+      countEl.textContent = `${topicInput.value.length} / 50`;
+    });
+
+    // 创建按钮
+    document.getElementById('createBtn').onclick = create;
+  }
+
+  function selectPreset(btn, seconds) {
+    document.querySelectorAll('#presetButtons button').forEach(b => {
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-outline');
+    });
+    btn.classList.remove('btn-outline');
+    btn.classList.add('btn-primary');
+    selectedSeconds = seconds;
+  }
+
+  async function create() {
+    const topic = document.getElementById('topicInput').value.trim();
+    if (!topic) { alert('请填写会话主题'); return; }
+
+    let seconds = selectedSeconds;
+    const customDays = document.getElementById('customDays').value;
+    if (customDays && customDays >= 1 && customDays <= 30) {
+      seconds = customDays * 24 * 60 * 60;
+    }
+
+    if (!seconds) { alert('请选择销毁时间'); return; }
+
+    const btn = document.getElementById('createBtn');
+    btn.disabled = true; btn.textContent = '创建中...';
+
+    try {
+      const r = await api.post('/rooms', { topic, destroySeconds: seconds });
+      if (!r.ok) {
+        alert(r.message || '创建失败');
+        btn.disabled = false; btn.textContent = '🎬 创建会话';
+        return;
+      }
+      createdRoom = r.room;
+      showShare(createdRoom);
+    } catch (e) {
+      alert('创建失败，请检查 Redis 是否启动');
+      btn.disabled = false; btn.textContent = '🎬 创建会话';
+    }
+  }
+
+  function showShare(room) {
+    document.getElementById('createForm').classList.add('hidden');
+    document.getElementById('shareView').classList.remove('hidden');
+
+    document.getElementById('roomCode').textContent = room.roomCode;
+    const link = `${location.origin}/join/${room.roomCode}`;
+    document.getElementById('shortLink').textContent = link;
+    document.getElementById('enterRoomBtn').href = `/room.html?room=${room.roomId}`;
+
+    // 生成二维码
+    const qrArea = document.getElementById('qrArea');
+    qrArea.innerHTML = '';
+    new QRCode(qrArea, {
+      text: link,
+      width: 160,
+      height: 160,
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  }
+
+  function copyCode() { copyToClipboard(createdRoom.roomCode); toast('房间码已复制'); }
+  function copyLink() { copyToClipboard(`${location.origin}/join/${createdRoom.roomCode}`); toast('链接已复制'); }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    });
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    clearTimeout(toastTimer);
+    let t = document.getElementById('__toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '__toast';
+      t.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:0.85rem;z-index:999;';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    toastTimer = setTimeout(() => t.remove(), 2000);
+  }
+
+  init();
+</script>
+</body>
+</html>

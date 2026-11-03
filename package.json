@@ -1,0 +1,24 @@
+{
+  "name": "youneigui",
+  "version": "0.1.0",
+  "description": "有内鬼 — 双向平等、聊完即焚、零社交沉淀的临时沟通协商窗口",
+  "main": "src/app.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js"
+  },
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "connect-redis": "^7.1.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "ioredis": "^5.4.1",
+    "nanoid": "^3.3.7",
+    "passport": "^0.7.0",
+    "passport-github2": "^0.1.12",
+    "passport-weibo": "^0.1.2",
+    "ws": "^8.18.0"
+  }
+}

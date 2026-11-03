@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>有内鬼 · 取消交易</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="container" id="app">
+
+  <!-- 未登录：显示登录页 -->
+  <div id="loginView" class="hidden">
+    <div style="text-align:center; padding: 60px 0 40px;">
+      <div style="font-size:3rem; margin-bottom:8px;">🎬</div>
+      <h1>有内鬼</h1>
+      <p class="tagline">「有内鬼，终止交易。」</p>
+    </div>
+    <div class="card">
+      <p style="font-size:0.85rem; color:#aaa; line-height:1.6; margin-bottom:20px;">
+        临时沟通协商窗口：聊成了自愿加好友，聊崩了一键取消交易，数据立即清空，谁也不欠谁。
+      </p>
+      <a class="btn btn-secondary" href="/auth/github">使用 GitHub 登录</a>
+      <a class="btn btn-secondary" href="/auth/weibo">使用微博登录</a>
+    </div>
+    <p class="muted center" style="margin-top:16px;">
+      我们仅存储昵称和头像用于会话内展示，销毁后立即清除
+    </p>
+  </div>
+
+  <!-- 已登录：显示首页 -->
+  <div id="homeView" class="hidden">
+    <div class="topbar">
+      <div class="title">🎬 有内鬼</div>
+      <div class="row">
+        <img id="userAvatar" style="width:28px; height:28px; border-radius:50%; background:#333;" alt="">
+        <span id="userNickname" class="muted" style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.1rem; margin-bottom:8px;">发起临时会话</h2>
+      <p class="muted" style="margin-bottom:16px;">
+        创建一个有有效期的临时聊天室，发链接给对方，聊完即焚。
+      </p>
+      <a class="btn btn-primary" href="/create.html">➕ 创建新会话</a>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.1rem; margin-bottom:16px;">加入会话</h2>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="joinCodeInput" class="input grow" placeholder="输入房间码，如 ABX3K9" style="margin-bottom:0; text-transform:uppercase;" maxlength="10">
+        <button class="btn btn-primary" id="joinBtn" style="margin:0; padding:0 20px;">加入</button>
+      </div>
+      <div id="joinResult" class="mt8"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem; color:#888; margin-bottom:12px;">💡 使用场景</h2>
+      <div style="font-size:0.85rem; color:#999; line-height:1.8;">
+        <p>• 销售想介绍产品但客户不想加微信？</p>
+        <p>• 项目说明书发出去有人来咨询细节？</p>
+        <p>• 线下活动结束想临时讨论？</p>
+        <p style="margin-top:12px;">👉 用有内鬼，聊崩了任何一方一键结束，数据立即清空。</p>
+      </div>
+    </div>
+
+    <div class="center mt16">
+      <button class="btn btn-outline" style="display:inline-block; width:auto; padding:8px 16px; font-size:0.85rem;" onclick="logout()">退出登录</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+  async function init() {
+    const user = await api.get('/auth/me');
+    if (user && user.id) {
+      document.getElementById('loginView').classList.add('hidden');
+      document.getElementById('homeView').classList.remove('hidden');
+      document.getElementById('userNickname').textContent = user.nickname;
+      document.getElementById('userAvatar').src = user.avatar || '/img/default-avatar.svg';
+
+      // 加入会话
+      const joinBtn = document.getElementById('joinBtn');
+      const joinInput = document.getElementById('joinCodeInput');
+      const joinResult = document.getElementById('joinResult');
+
+      joinBtn.onclick = () => joinByCode(joinInput.value.trim().toUpperCase(), joinResult);
+      joinInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') joinBtn.click();
+      });
+    } else {
+      document.getElementById('loginView').classList.remove('hidden');
+      document.getElementById('homeView').classList.add('hidden');
+    }
+  }
+
+  async function joinByCode(code, resultEl) {
+    if (!code) return;
+    resultEl.innerHTML = '';
+    resultEl.classList.add('muted');
+    resultEl.textContent = '正在查找会话...';
+
+    try {
+      const r = await api.get(`/rooms/by-code/${code}`);
+      if (!r.ok) {
+        resultEl.innerHTML = '<span style="color:#e74c3c;">会话不存在或已销毁</span>';
+        return;
+      }
+      if (r.room.status !== 'active') {
+        resultEl.innerHTML = '<span style="color:#e74c3c;">会话已销毁</span>';
+        return;
+      }
+      // 加入
+      const joinRes = await api.post(`/rooms/${r.roomId}/join`);
+      if (joinRes.ok) {
+        window.location.href = `/room.html?room=${r.roomId}`;
+      }
+    } catch (e) {
+      resultEl.innerHTML = '<span style="color:#e74c3c;">加入失败，请重试</span>';
+    }
+  }
+
+  async function logout() {
+    await api.post('/auth/logout');
+    window.location.reload();
+  }
+
+  init();
+</script>
+</body>
+</html>
