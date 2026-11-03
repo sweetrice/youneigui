@@ -78,15 +78,22 @@ GITHUB_CLIENT_SECRET=xxx
 
 ### 接入更多 OAuth 渠道（微信 / 微博 / Google / ...）
 
-当前代码是按 **单 provider 可扩展架构** 设计的。要接入新渠道，核心步骤是：
+当前代码按 **单 provider 可扩展架构** 设计。**推荐流程：先 fork，再让 AI 干活。**
 
-1. 安装对应 passport strategy：`npm i passport-<provider>`
-2. 在 `src/config.js` 加一段 `provider: { clientId, clientSecret }`
-3. 在 `src/oauth/index.js` 里加一个新的 `passport.use(new Strategy(...))`
-4. 在同文件里加两条路由 `/auth/<provider>` 和 `/auth/<provider>/callback`
-5. 在登录页 HTML（同一个文件里的 router.get('/login') 内联模板）加一个按钮
-
-**如果你希望接入新的 OAuth 渠道，推荐方式是：fork 本仓库后让 AI（例如 Trae / Cursor）根据 [passportjs.org/packages](https://www.passportjs.org/packages/) 的文档帮你写。** 把要接入的 provider 名称 + 申请好的 Client ID/Secret 告诉 AI，它能一次写对。
+1. **Fork 本仓库** → clone 到本地
+2. **让 AI 帮你写**：打开 Trae / Cursor，把仓库导进去，给它这个 prompt：
+   ```
+   请帮我接入 <目标渠道名> OAuth。
+   参考文档：https://www.passportjs.org/packages/passport-<channel>/
+   我的 Client ID / Secret：<你的值>
+   
+   现有架构：
+   - src/config.js 存放各渠道 clientId/clientSecret
+   - src/oauth/index.js 注册 passport Strategy + 两条路由 /auth/<channel> 和 /auth/<channel>/callback
+   - 登录页 HTML 在同文件的 router.get('/login') 内联模板里
+   ```
+   它会一次完成：安装 passport-<channel>、config 加字段、Strategy 注册、两条路由、登录页按钮。
+3. 手动验证 callbackURL 和申请时填的一致 → 提交 PR 回原仓库（如果想贡献回去）或继续自己用。
 
 > 为什么 MVP 只留 GitHub？OAuth 渠道越多，测试矩阵越大（每个渠道的 callbackURL、scope、用户 profile 字段名都不同）。留一个跑通的，扩展交给社区和 AI。
 
@@ -103,12 +110,23 @@ GITHUB_CLIENT_SECRET=xxx
 
 ### 添加新语言（日语 / 韩语 / 法语 / ...）
 
-1. 打开 `public/js/i18n.js`，复制 `LANGS.en` 改成 `LANGS.ja`（或 ko / fr / ...），逐条翻译
-2. 打开 `src/export/routes.js`，复制 `I18N.en` 改成 `I18N.ja`，逐条翻译
-3. 加一条 `case 'ja': ...` 切换 `dateLocale`
-4. 顶部切换按钮显示的语言代码要更新 —— 在 `i18n.js` 的 `initI18n` 里把按钮文本改多态
+**推荐流程：先 fork，再让 AI 翻译。**
 
-**推荐方式：fork 后让 AI 根据当前 zh→en 词典，帮你翻译成目标语言。** 把要加的语言 + zh/en 词典文件路径告诉 AI，一次能写对。
+1. **Fork 本仓库** → clone 到本地
+2. **让 AI 帮你翻译**：打开 Trae / Cursor，给它这个 prompt：
+   ```
+   请帮我添加 <目标语言名> 支持。
+   
+   需要改两个文件：
+   1. public/js/i18n.js — 复制现有 LANGS.en 改成 LANGS.<lang>，把所有英文翻译成 <目标语言>
+   2. src/export/routes.js — 复制现有 I18N.en 改成 I18N.<lang>，把所有英文翻译成 <目标语言>
+   
+   注意：
+   - zh → en 的词典里，中文原文是 key，英文是 value
+   - 确保每条 zh 词条都有对应的 <目标语言> value
+   - export/routes.js 里还要在 switch 里加一条 case '<lang>': dateLocale = '<lang>-<REGION>'
+   ```
+3. 手动刷新页面，点顶栏 `EN / 中` 按钮验证切换正常 → 提交 PR 回原仓库或继续自己用。
 
 ---
 
