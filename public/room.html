@@ -127,9 +127,18 @@
 
   function copyRoomCode() {
     const code = document.getElementById('roomCode').textContent;
-    navigator.clipboard.writeText(`http://${location.host}/join/${code}`).then(() => {
-      alert('分享链接已复制：\n' + code);
-    });
+    const link = `${location.origin}/join/${code}`;
+    const ta = document.createElement('textarea');
+    ta.value = link; document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+    if (!ok && window.navigator && window.navigator.clipboard) {
+      window.navigator.clipboard.writeText(link).catch(() => {});
+      ok = true;
+    }
+    alert(ok ? '分享链接已复制：\n' + link : '复制失败，请手动选中复制');
   }
 
   function renderMemberList() {

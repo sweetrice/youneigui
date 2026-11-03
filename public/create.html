@@ -174,11 +174,16 @@
   function copyLink() { copyToClipboard(`${location.origin}/join/${createdRoom.roomCode}`); toast('链接已复制'); }
 
   function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = text; document.body.appendChild(ta);
-      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-    });
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+    // 如果 execCommand 失败（极少数情况），再试 Clipboard API（HTTPS + localhost 才可用）
+    if (!ok && window.navigator && window.navigator.clipboard) {
+      window.navigator.clipboard.writeText(text).catch(() => {});
+    }
   }
 
   let toastTimer;
