@@ -186,14 +186,13 @@ function setLang(lang) {
 function initI18n() {
   translate(document.body, currentLang);
 
-  // 语言切换按钮（如果页面上有的话）
-  const switchBtn = document.getElementById('langSwitch');
-  if (switchBtn) {
-    switchBtn.textContent = currentLang === 'zh' ? 'EN' : '中';
-    switchBtn.addEventListener('click', () => {
+  // 语言切换按钮：支持页面上多个（loginView / homeView 各一个）
+  document.querySelectorAll('[data-i18n-switch]').forEach((btn) => {
+    btn.textContent = currentLang === 'zh' ? 'EN' : '中';
+    btn.addEventListener('click', () => {
       setLang(currentLang === 'zh' ? 'en' : 'zh');
     });
-  }
+  });
 }
 
 // 暴露到全局，方便 HTML 内联脚本和 WebSocket 事件里生成的中文也能替换
