@@ -59,12 +59,36 @@ docker-compose up -d
 
 ## OAuth 配置说明
 
-| 渠道 | 要求 | 获取方式 |
-|------|------|----------|
-| 微信网页授权 | 已认证服务号 | [微信公众平台](https://mp.weixin.qq.com) → 开发 → 接口权限 |
-| 微博 OAuth | 个人开发者可申请 | [微博开放平台](https://open.weibo.com) → 创建应用 |
+当前版本仅支持 **GitHub OAuth**，申请地址：
 
-> ⚠️ 已知限制：微信 snsapi_base 网页授权需已认证服务号，个人主体可能拿不到。
+👉 [github.com/settings/developers → New OAuth App](https://github.com/settings/developers)
+
+| 字段 | 填什么 |
+|------|--------|
+| Application name | 有内鬼 Dev（或自定义） |
+| Homepage URL | `http://localhost:3000`（或你的部署域名） |
+| Authorization callback URL | `http://localhost:3000/auth/github/callback`（必须精确匹配） |
+
+创建后拿到 Client ID + Client Secret，填入 `.env`：
+
+```bash
+GITHUB_CLIENT_ID=xxx
+GITHUB_CLIENT_SECRET=xxx
+```
+
+### 接入更多 OAuth 渠道（微信 / 微博 / Google / ...）
+
+当前代码是按 **单 provider 可扩展架构** 设计的。要接入新渠道，核心步骤是：
+
+1. 安装对应 passport strategy：`npm i passport-<provider>`
+2. 在 `src/config.js` 加一段 `provider: { clientId, clientSecret }`
+3. 在 `src/oauth/index.js` 里加一个新的 `passport.use(new Strategy(...))`
+4. 在同文件里加两条路由 `/auth/<provider>` 和 `/auth/<provider>/callback`
+5. 在登录页 HTML（同一个文件里的 router.get('/login') 内联模板）加一个按钮
+
+**如果你希望接入新的 OAuth 渠道，推荐方式是：fork 本仓库后让 AI（例如 Trae / Cursor）根据 [passportjs.org/packages](https://www.passportjs.org/packages/) 的文档帮你写。** 把要接入的 provider 名称 + 申请好的 Client ID/Secret 告诉 AI，它能一次写对。
+
+> 为什么 MVP 只留 GitHub？OAuth 渠道越多，测试矩阵越大（每个渠道的 callbackURL、scope、用户 profile 字段名都不同）。留一个跑通的，扩展交给社区和 AI。
 
 ---
 

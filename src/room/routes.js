@@ -19,7 +19,7 @@ router.get('/presets', (req, res) => {
 // POST /api/rooms — 创建会话
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const user = req.session.user;
+    const user = req.user;
     const { topic, destroySeconds } = req.body;
     const result = await room.createRoom(user, {
       topic,
@@ -58,7 +58,7 @@ router.get('/by-code/:code', async (req, res) => {
 // POST /api/rooms/:roomId/join — 加入会话
 router.post('/:roomId/join', requireAuth, async (req, res) => {
   try {
-    const result = await room.joinRoom(req.params.roomId, req.session.user);
+    const result = await room.joinRoom(req.params.roomId, req.user);
     // 返回完整房间信息
     const fullRoom = await room.getRoom(req.params.roomId);
     res.json({ ok: true, room: fullRoom, isNewMember: result.isNewMember });
@@ -82,13 +82,13 @@ router.get('/:roomId', requireAuth, async (req, res) => {
 
 // POST /api/rooms/:roomId/leave — 退出会话（自己走，不销毁）
 router.post('/:roomId/leave', requireAuth, async (req, res) => {
-  await room.leaveRoom(req.params.roomId, req.session.user.id);
+  await room.leaveRoom(req.params.roomId, req.user.id);
   // 通知其他成员
   const { client } = require('../redis');
   await client.publish('room:event', JSON.stringify({
     type: 'member_left',
     room_id: req.params.roomId,
-    member: req.session.user,
+    member: req.user,
   }));
   res.json({ ok: true });
 });
@@ -96,7 +96,7 @@ router.post('/:roomId/leave', requireAuth, async (req, res) => {
 // POST /api/rooms/:roomId/destroy — 结束会话（任何人平等销毁）
 router.post('/:roomId/destroy', requireAuth, async (req, res) => {
   try {
-    const result = await room.destroyRoom(req.params.roomId, req.session.user, 'manual');
+    const result = await room.destroyRoom(req.params.roomId, req.user, 'manual');
     res.json({ ok: true, room: result });
   } catch (e) {
     console.error('[api/rooms] destroy error:', e.message);
@@ -109,7 +109,7 @@ router.put('/:roomId/destroy-time', requireAuth, async (req, res) => {
   try {
     const result = await room.editDestroyTime(
       req.params.roomId,
-      req.session.user.id,
+      req.user.id,
       req.body.destroySeconds,
     );
     res.json({ ok: true, ...result });

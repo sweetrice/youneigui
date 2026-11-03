@@ -3,10 +3,16 @@
 const router = require('express').Router();
 const passport = require('passport');
 const GitHubStrategy = require('passport-github2').Strategy;
-const WeiboStrategy = require('passport-weibo').Strategy;
 const config = require('../config');
 
-// 通用 OAuth 用户序列化（存入 session）
+// ========== 动态构建 callbackURL ==========
+function buildCallbackUrl(req, provider) {
+  const host = req.headers.host;
+  const protocol = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  return `${protocol}://${host}/auth/${provider}/callback`;
+}
+
+// ========== Passport Session 序列化 ==========
 passport.serializeUser((user, done) => {
   done(null, {
     id: user.id,
@@ -15,16 +21,18 @@ passport.serializeUser((user, done) => {
     oauthProvider: user.oauthProvider,
   });
 });
-passport.deserializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => {
+  if (!user) return done(null, null);
+  done(null, user);
+});
 
 // ========== GitHub ==========
 if (config.github.clientId && config.github.clientSecret) {
   passport.use(new GitHubStrategy({
     clientID: config.github.clientId,
     clientSecret: config.github.clientSecret,
-    callbackURL: config.github.callbackURL,
   }, (accessToken, refreshToken, profile, done) => {
-    // profile.id = GitHub numeric ID, profile.username = login, profile.displayName = name
+    console.log(`[oauth/github] callback OK: id=${profile.id}, name=${profile.displayName || profile.username}`);
     done(null, {
       id: `gh_${profile.id}`,
       nickname: profile.displayName || profile.username || 'GitHub 用户',
@@ -37,31 +45,11 @@ if (config.github.clientId && config.github.clientSecret) {
   console.warn('[oauth] GitHub credentials not configured, skipping');
 }
 
-// ========== Weibo ==========
-if (config.weibo.clientId && config.weibo.clientSecret) {
-  passport.use(new WeiboStrategy({
-    clientID: config.weibo.clientId,
-    clientSecret: config.weibo.clientSecret,
-    callbackURL: config.weibo.callbackURL,
-  }, (accessToken, refreshToken, profile, done) => {
-    done(null, {
-      id: `wb_${profile.id}`,
-      nickname: profile.displayName || '微博用户',
-      avatar: profile._json && profile._json.avatar_large
-        ? profile._json.avatar_large
-        : (profile._json && profile._json.profile_image_url ? profile._json.profile_image_url : ''),
-      oauthProvider: 'weibo',
-    });
-  }));
-  console.log('[oauth] Weibo strategy registered');
-} else {
-  console.warn('[oauth] Weibo credentials not configured, skipping');
-}
-
 // ========== 路由 ==========
 
 // 登录入口
 router.get('/login', (req, res) => {
+  const error = req.query.error;
   res.send(`<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>有内鬼 · 登录</title>
@@ -69,49 +57,84 @@ router.get('/login', (req, res) => {
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#1a1a2e;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
 h1{font-size:1.5rem;margin-bottom:0.5rem}
 .sub{color:#aaa;margin-bottom:2rem;font-size:0.9rem;text-align:center;max-width:320px;padding:0 1rem}
-.btn{display:block;width:260px;padding:14px 20px;margin:10px 0;border:none;border-radius:10px;font-size:1rem;cursor:text-decoration:none;color:#fff;text-align:center}
+.btn{display:block;width:260px;padding:14px 20px;margin:10px 0;border:none;border-radius:10px;font-size:1rem;cursor:pointer;text-decoration:none;color:#fff;text-align:center}
 .btn-github{background:#24292f}
 .btn-github:hover{background:#2f3640}
-.btn-weibo{background:#e6162d}
-.btn-weibo:hover{background:#ff2a45}
+.btn-secondary{background:#16213e}
+.btn-secondary:hover{background:#1f2d52}
 .note{font-size:0.75rem;color:#666;margin-top:2rem;text-align:center;padding:0 1rem}
+.err{background:#c0392b;padding:12px 20px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;max-width:320px;text-align:center}
 </style></head>
 <body>
 <h1>有内鬼 🎬</h1>
 <p class="sub">登录以创建或加入临时会话，聊完即焚，不沉淀任何社交关系</p>
+${error ? '<div class="err">❌ 登录失败，请重试</div>' : ''}
 ${config.github.clientId ? '<a class="btn btn-github" href="/auth/github">使用 GitHub 登录</a>' : ''}
-${config.weibo.clientId ? '<a class="btn btn-weibo" href="/auth/weibo">使用微博登录</a>' : ''}
-${!config.github.clientId && !config.weibo.clientId ? '<p style="color:#888">OAuth 尚未配置，请联系管理员</p>' : ''}
+<a class="btn btn-secondary" href="/auth/mock?name=测试用户">🧪 开发模式 Mock 登录</a>
+${!config.github.clientId ? '<p style="color:#888">OAuth 尚未配置，请联系管理员</p>' : ''}
 <p class="note">我们仅存储你的昵称和头像用于会话内展示，销毁后立即清除</p>
 </body></html>`);
 });
 
-// GitHub
-router.get('/github', passport.authenticate('github'));
-router.get('/github/callback',
-  passport.authenticate('github', { failureRedirect: '/auth/login?error=oauth_failed' }),
-  (req, res) => res.redirect('/')
-);
+// ========== 开发模式 Mock 登录 ==========
+router.get('/mock', (req, res) => {
+  const name = (req.query.name || 'Mock 用户').toString();
+  const user = {
+    id: `mock_${Date.now()}`,
+    nickname: name,
+    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+    oauthProvider: 'mock',
+  };
+  req.login(user, (err) => {
+    if (err) { console.error('[oauth/mock] login failed:', err); return res.redirect('/auth/login?error=mock_failed'); }
+    console.log(`[oauth/mock] logged in as ${user.id} (${user.nickname})`);
+    req.session.save((saveErr) => {
+      if (saveErr) console.error('[oauth/mock] session save failed:', saveErr);
+      res.redirect('/create.html');
+    });
+  });
+});
 
-// Weibo
-router.get('/weibo', passport.authenticate('weibo'));
-router.get('/weibo/callback',
-  passport.authenticate('weibo', { failureRedirect: '/auth/login?error=oauth_failed' }),
-  (req, res) => res.redirect('/')
-);
+// GitHub — 进入授权
+router.get('/github', (req, res, next) => {
+  const callbackURL = buildCallbackUrl(req, 'github');
+  console.log(`[oauth/github] redirecting to GitHub... callbackURL=${callbackURL}`);
+  passport.authenticate('github', { callbackURL })(req, res, next);
+});
+
+// GitHub — 回调
+router.get('/github/callback', (req, res, next) => {
+  const callbackURL = buildCallbackUrl(req, 'github');
+  passport.authenticate('github', { callbackURL, session: true }, (err, user, info) => {
+    console.log('[oauth/github] callback args: err=', err ? err.message : null, 'user=', user ? user.id : null, 'info=', info);
+    if (err) {
+      console.error('[oauth/github] ERROR:', err.message);
+      if (err.oauthError) console.error('[oauth/github] oauthError:', err.oauthError);
+      return res.redirect('/auth/login?error=oauth_failed');
+    }
+    if (!user) return res.redirect('/auth/login?error=no_user');
+    req.login(user, (loginErr) => {
+      if (loginErr) { console.error('[oauth/github] req.login FAILED:', loginErr); return res.redirect('/auth/login?error=session_save_failed'); }
+      console.log(`[oauth/github] ✅ logged in ${user.id} session=${req.sessionID}`);
+      req.session.save((saveErr) => {
+        if (saveErr) console.error('[oauth/github] session save failed:', saveErr);
+        res.redirect('/create.html');
+      });
+    });
+  })(req, res, next);
+});
 
 // 当前用户信息
 router.get('/me', (req, res) => {
-  if (req.session && req.session.user) {
-    return res.json(req.session.user);
-  }
+  const user = req.user || (req.session && req.session.passport && req.session.passport.user);
+  if (user) return res.json(user);
   res.json(null);
 });
 
 // 登出
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('connect.sid');
+    res.clearCookie('yg.sid');
     res.json({ ok: true });
   });
 });

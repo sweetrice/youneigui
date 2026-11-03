@@ -31,10 +31,11 @@ function start() {
   // Session 配置
   const sessionOpts = {
     secret: config.sessionSecret,
+    name: 'yg.sid', // 自定义 cookie 名，避免旧 cookie 干扰
     resave: false,
     saveUninitialized: false,
     cookie: {
-      httpOnly: true,
+      httpOnly: false, // 允许前端 JS 读取（WebSocket 连接需要 sid 参数）
       maxAge: config.sessionMaxAge * 1000,
       sameSite: 'lax',
     },
@@ -102,8 +103,13 @@ function start() {
 
   // ========== 销毁定时器恢复 ==========
   const boot = () => {
-    http.listen(config.port, () => {
-      console.log(`\n🎬 有内鬼 running on ${config.appUrl} (port ${config.port})`);
+    http.listen(config.port, '0.0.0.0', () => {
+      // 打印局域网可访问地址
+      const nets = require('os').networkInterfaces();
+      const lanIp = (Object.values(nets).flat() || []).find(a => a.family === 'IPv4' && !a.internal)?.address || '127.0.0.1';
+      console.log(`\n🎬 有内鬼 running on port ${config.port}`);
+      console.log(`   本机访问: http://localhost:${config.port}`);
+      console.log(`   局域网:  http://${lanIp}:${config.port}`);
       console.log(`   Redis: ${redisReady ? '✅ connected' : '❌ not available (using MemoryStore)'}`);
       console.log(`   GitHub OAuth: ${config.github.clientId ? '✅' : '❌ not configured'}`);
       console.log(`   Weibo  OAuth: ${config.weibo.clientId ? '✅' : '❌ not configured'}`);

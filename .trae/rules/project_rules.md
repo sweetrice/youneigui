@@ -30,12 +30,12 @@ alwaysApply: true
 ## 技术栈
 - 后端：Node.js（Express + ws），优先快速迭代
 - 存储：Redis，房间元数据和消息存 Redis，key 设 TTL
-- 登录：优先支持 OAuth 2.0 / OpenID Connect 标准渠道，MVP 先上 **GitHub OAuth**（开发者友好、不需要企业资质），后续按需求增加微信网页授权 snsapi_base、微博 OAuth；存储 OpenID + OAuth 返回的昵称和头像（仅用于会话内展示，不做跨会话关联）
+- 登录：当前仅保留 **GitHub OAuth**（passport-github2，开发者友好、不需要企业资质），存储 OAuth 返回的昵称和头像（仅用于会话内展示，不做跨会话关联）。如需接入更多 OAuth 渠道（微信、微博、Google 等），架构是可扩展的，fork 后让 AI 根据 passportjs.org 文档帮你写
 - 前端：单页 HTML + 原生 JS，移动端优先，微信内置浏览器可正常打开
 - 部署：提供 docker-compose.yml，AppID/Secret 通过环境变量注入
 
 ## 第一版只做这些（核心闭环）
-1. OAuth 登录（MVP 先上 GitHub，后续加微信/微博），存储 OpenID + 昵称 + 头像（仅会话内展示）
+1. OAuth 登录（仅 GitHub），存储昵称 + 头像（仅会话内展示）
 2. 创建房间：事由名称、有效期（预设 1h/6h/24h/3d/7d + 自定义），**人数不限**
 3. 生成短链接，复制分享
 4. 对方点链接 → OAuth 登录 → 直接进房，无需额外确认

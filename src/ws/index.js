@@ -47,13 +47,14 @@ function createWebSocketServer(http, redis) {
   // ========== WS 连接处理 ==========
   wss.on('connection', async (ws, req) => {
     try {
-      // 从 URL query 里取 roomId 和 session
+      // 从 URL query 里取 roomId
       const url = new URL(req.url, `http://${req.headers.host}`);
       const roomId = url.searchParams.get('roomId');
+      // sid 可选（用于日志追踪），不强制要求
       const sessionId = url.searchParams.get('sid');
 
-      if (!roomId || !sessionId) {
-        ws.close(4400, 'missing_params');
+      if (!roomId) {
+        ws.close(4400, 'missing_roomId');
         return;
       }
 

@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0">
   <meta name="theme-color" content="#0f0f1a">
-  <title>有内鬼 · 取消交易</title>
+  <title>有内鬼 · 聊天内容自动销毁，不留痕</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
 
   <!-- 未登录：显示登录页 -->
   <div id="loginView" class="hidden">
-    <div style="text-align:center; padding: 60px 0 40px;">
-      <div style="font-size:3rem; margin-bottom:8px;">🎬</div>
+    <div style="text-align:center; padding: 48px 0 32px;">
+      <img src="/img/logo.svg" alt="有内鬼" style="width:88px; height:88px; margin-bottom:12px;">
       <h1>有内鬼</h1>
       <p class="tagline">「有内鬼，终止交易。」</p>
     </div>
@@ -32,7 +32,10 @@
   <!-- 已登录：显示首页 -->
   <div id="homeView" class="hidden">
     <div class="topbar">
-      <div class="title">🎬 有内鬼</div>
+      <div class="row grow">
+        <img src="/img/logo.svg" alt="有内鬼" style="width:28px; height:28px;">
+        <div class="title">有内鬼</div>
+      </div>
       <div class="row">
         <img id="userAvatar" style="width:28px; height:28px; border-radius:50%; background:#333;" alt="">
         <span id="userNickname" class="muted" style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
@@ -44,7 +47,7 @@
       <p class="muted" style="margin-bottom:16px;">
         创建一个有有效期的临时聊天室，发链接给对方，聊完即焚。
       </p>
-      <a class="btn btn-primary" href="/create.html">➕ 创建新会话</a>
+      <a class="btn btn-primary full-width" href="/create.html">➕ 创建新会话</a>
     </div>
 
     <div class="card">
@@ -110,7 +113,7 @@
         resultEl.innerHTML = '<span style="color:#e74c3c;">会话不存在或已销毁</span>';
         return;
       }
-      if (r.room.status !== 'active') {
+      if (r.status !== 'active') {
         resultEl.innerHTML = '<span style="color:#e74c3c;">会话已销毁</span>';
         return;
       }

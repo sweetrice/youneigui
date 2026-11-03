@@ -2,25 +2,27 @@
 
 /**
  * 登录校验中间件
- * 未登录返回 401，前端自行跳转到登录页
+ * passport 标准：user 存于 req.user（passport.session() 中间件反序列化）
  */
 function requireAuth(req, res, next) {
-  if (req.session && req.session.user) {
-    req.user = req.session.user;
+  const user = req.user || (req.session && req.session.passport && req.session.passport.user);
+  if (user) {
+    req.user = user;
     return next();
   }
   if (req.xhr || (req.headers.accept || '').includes('application/json')) {
     return res.status(401).json({ error: 'not_authenticated' });
   }
-  return res.redirect('/login.html');
+  return res.redirect('/auth/login');
 }
 
 /**
  * 当前用户信息（公开接口，未登录也能访问）
  */
 function attachUser(req, res, next) {
-  if (req.session && req.session.user) {
-    req.user = req.session.user;
+  const user = req.user || (req.session && req.session.passport && req.session.passport.user);
+  if (user) {
+    req.user = user;
   }
   next();
 }

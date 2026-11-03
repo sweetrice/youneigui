@@ -7,9 +7,11 @@ const api = {
   async put(path, data) { return this._request('PUT', path, data); },
 
   async _request(method, path, data) {
+    // 自动补 /api 前缀（/auth/* 是例外）
+    const url = path.startsWith('/auth') ? path : `/api${path}`;
     const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
     if (data) opts.body = JSON.stringify(data);
-    const res = await fetch(path, opts);
+    const res = await fetch(url, opts);
     if (res.status === 401) {
       // 未登录跳登录页
       if (location.pathname !== '/' && location.pathname !== '/index.html') {

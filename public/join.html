@@ -36,7 +36,7 @@
     msg.textContent = '正在查找会话...';
     try {
       const r = await fetch(`/api/rooms/by-code/${code}`).then(r => r.json());
-      if (!r.ok || !r.room) {
+      if (!r.ok || r.status !== 'active') {
         msg.innerHTML = '<span style="color:#e74c3c;">会话不存在或已销毁</span>';
         return;
       }

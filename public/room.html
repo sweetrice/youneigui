@@ -2,13 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0">
   <meta name="theme-color" content="#0f0f1a">
-  <title>有内鬼 · 聊天室</title>
+  <title>有内鬼 · 聊天内容自动销毁，不留痕</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-<div class="container" id="app" style="padding-bottom:0;">
+<div class="container chatroom" id="app">
 
   <!-- 断线提示 -->
   <div id="disconnectedBanner" class="disconnected-banner hidden">⚠️ 网络断开，正在重连...</div>
@@ -19,36 +19,38 @@
       <div class="big-icon">🔥</div>
       <h2 style="margin-bottom:8px;">会话已销毁</h2>
       <p style="color:#888; margin-bottom:24px;">所有数据已永久清除</p>
-      <a class="btn btn-primary" href="/">返回首页</a>
+      <a class="btn btn-primary full-width" href="/">返回首页</a>
     </div>
   </div>
 
   <!-- 聊天室 -->
-  <div id="chatView" class="hidden">
+  <div id="chatView" class="hidden chatview-root">
     <div class="chat-header">
-      <div class="topbar" style="margin-bottom:4px;">
-        <div class="row grow">
-          <a href="/" class="btn btn-outline" style="width:auto; padding:6px 12px; font-size:0.85rem; margin:0;">← 离开</a>
+      <div class="topbar" style="margin-bottom:2px; padding:0;">
+        <a href="/" class="btn btn-outline" style="width:auto; padding:4px 12px; font-size:0.8rem; margin:0;">← 离开</a>
+        <div class="row">
+          <img src="/img/logo.svg" alt="有内鬼" style="width:20px; height:20px;">
+          <div class="countdown" id="countdown">--:--</div>
         </div>
-        <div class="countdown" id="countdown">--:--</div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-outline" style="margin:0; padding:4px 10px; font-size:0.75rem;" onclick="exportMarkdown()">📄</button>
+          <button class="btn btn-outline btn-danger" style="margin:0; padding:4px 10px; font-size:0.75rem;" onclick="showDestroyConfirm()">🚨</button>
+        </div>
       </div>
-      <h2 id="roomTopic" style="font-size:0.95rem; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></h2>
+      <h2 id="roomTopic"></h2>
+      <div class="room-code-row">
+        <span class="room-code-label">房间号</span>
+        <code class="room-code" id="roomCode"></code>
+        <button class="btn btn-outline" style="margin:0; padding:2px 8px; font-size:0.7rem;" onclick="copyRoomCode()">复制</button>
+      </div>
       <div class="member-list" id="memberList"></div>
     </div>
 
-    <div class="chat-area" id="chatArea">
-      <!-- 消息 JS 动态渲染 -->
-    </div>
+    <div class="chat-area" id="chatArea"></div>
 
-    <div class="input-area">
-      <textarea id="msgInput" rows="1" placeholder="说点什么...（Enter 发送，Shift+Enter 换行）" maxlength="2000"></textarea>
+    <div class="input-area" style="padding-bottom: env(safe-area-inset-bottom, 0);">
+      <textarea id="msgInput" rows="1" placeholder="说点什么..." maxlength="2000"></textarea>
       <button class="btn btn-primary send-btn" id="sendBtn">发送</button>
-    </div>
-
-    <!-- 底部操作栏 -->
-    <div style="display:flex; gap:8px; padding:8px 0 16px;">
-      <button class="btn btn-outline" style="margin:0; flex:1; padding:8px;" onclick="exportMarkdown()">📄 导出 Markdown</button>
-      <button class="btn btn-outline btn-danger" style="margin:0; flex:1; padding:8px;" onclick="showDestroyConfirm()">🚨 结束会话</button>
     </div>
   </div>
 
@@ -118,6 +120,14 @@
     document.getElementById('chatView').classList.remove('hidden');
     document.getElementById('destroyedView').classList.add('hidden');
     document.getElementById('roomTopic').textContent = room.topic;
+    document.getElementById('roomCode').textContent = room.roomCode;
+  }
+
+  function copyRoomCode() {
+    const code = document.getElementById('roomCode').textContent;
+    navigator.clipboard.writeText(`http://${location.host}/join/${code}`).then(() => {
+      alert('分享链接已复制：\n' + code);
+    });
   }
 
   function renderMemberList() {
@@ -197,7 +207,9 @@
   // ============ WebSocket ============
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}/ws?roomId=${state.roomId}&sid=${getCookie('connect.sid')}`;
+    const sid = getCookie('yg.sid') || getCookie('connect.sid');
+    console.log('[WS] roomId=', state.roomId, 'sid=', sid ? sid.slice(0, 20) + '...' : 'EMPTY');
+    const url = `${proto}//${location.host}/ws?roomId=${state.roomId}&sid=${encodeURIComponent(sid)}`;
 
     try {
       state.ws = new WebSocket(url);

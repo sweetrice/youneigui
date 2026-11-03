@@ -51,12 +51,6 @@ module.exports = {
     callbackURL: `${process.env.APP_URL || 'http://localhost:3000'}/auth/github/callback`,
   },
 
-  weibo: {
-    clientId: process.env.WEIBO_CLIENT_ID || '',
-    clientSecret: process.env.WEIBO_CLIENT_SECRET || '',
-    callbackURL: `${process.env.APP_URL || 'http://localhost:3000'}/auth/weibo/callback`,
-  },
-
   // 预设销毁时间（秒）
   destroyPresets: [
     { label: '30 分钟', seconds: 30 * 60 },
