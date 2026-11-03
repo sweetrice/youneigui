@@ -92,6 +92,26 @@ GITHUB_CLIENT_SECRET=xxx
 
 ---
 
+## 多语言支持（i18n）
+
+当前内置 **中文（默认）+ 英文**，顶部导航栏有 `EN / 中` 切换按钮，选择后存 `localStorage`，刷新即生效。
+
+### 架构
+
+- **前端**：`public/js/i18n.js` — 中文原文作为 key，运行时遍历 `<body>` 下所有文本节点匹配替换。现有 HTML **零改动**。
+- **后端 Markdown 导出**：`src/export/routes.js` 接收 `?lang=en` 参数，两套模板（zh / en），`Date.toLocaleString` 也会切换 locale。
+
+### 添加新语言（日语 / 韩语 / 法语 / ...）
+
+1. 打开 `public/js/i18n.js`，复制 `LANGS.en` 改成 `LANGS.ja`（或 ko / fr / ...），逐条翻译
+2. 打开 `src/export/routes.js`，复制 `I18N.en` 改成 `I18N.ja`，逐条翻译
+3. 加一条 `case 'ja': ...` 切换 `dateLocale`
+4. 顶部切换按钮显示的语言代码要更新 —— 在 `i18n.js` 的 `initI18n` 里把按钮文本改多态
+
+**推荐方式：fork 后让 AI 根据当前 zh→en 词典，帮你翻译成目标语言。** 把要加的语言 + zh/en 词典文件路径告诉 AI，一次能写对。
+
+---
+
 ## 项目结构
 
 ```
