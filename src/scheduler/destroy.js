@@ -1,6 +1,7 @@
 'use strict';
 
-const { client } = require('../redis');
+const { client, rawClient } = require('../redis');
+const config = require('../config');
 const roomManager = require('../room/manager');
 
 /**
@@ -90,23 +91,31 @@ async function notifyReminder(roomId, type, remainingSeconds) {
  * 扫 Redis 中所有 room:meta:* 的 key
  */
 async function restore() {
-  const keys = await client.keys('room:meta:*');
+  // 用 rawClient 绕开 ioredis keyPrefix 在 keys() 上的 bug
+  const fullPattern = `${config.redisPrefix}room:meta:*`;
+  let cursor = '0';
   let restored = 0;
-  for (const key of keys) {
-    const meta = await client.hgetall(key);
-    if (meta && meta.status === 'active' && meta.destroy_at) {
-      const destroyAt = Number(meta.destroy_at);
-      if (destroyAt > Date.now()) {
-        await register(meta.room_id, destroyAt);
-        restored++;
-      } else {
-        // 已过期但没销毁，直接销毁
-        console.log(`[scheduler] found expired room ${meta.room_id}, destroying now`);
-        await roomManager.destroyRoom(meta.room_id, null, 'auto');
+  let expired = 0;
+  do {
+    const [nextCursor, fullKeys] = await rawClient.scan(cursor, 'MATCH', fullPattern, 'COUNT', 100);
+    cursor = nextCursor;
+    for (const fullKey of fullKeys) {
+      const rawKey = fullKey.slice(config.redisPrefix.length);
+      const meta = await client.hgetall(rawKey);
+      if (meta && meta.status === 'active' && meta.destroy_at) {
+        const destroyAt = Number(meta.destroy_at);
+        if (destroyAt > Date.now()) {
+          await register(meta.room_id, destroyAt);
+          restored++;
+        } else {
+          console.log(`[scheduler] found expired room ${meta.room_id}, destroying now`);
+          await roomManager.destroyRoom(meta.room_id, null, 'auto');
+          expired++;
+        }
       }
     }
-  }
-  console.log(`[scheduler] restored ${restored} active room timers`);
+  } while (cursor !== '0');
+  console.log(`[scheduler] restored ${restored} active room timers, ${expired} expired rooms destroyed`);
 }
 
 module.exports = { register, cancel, restore, REMINDERS };
