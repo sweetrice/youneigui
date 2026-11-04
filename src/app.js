@@ -89,10 +89,13 @@ function start() {
     if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
     try {
       // 1. 活跃房间数
+      // ioredis keys() 返回带 prefix 的 key，后续操作也要 slice 掉 prefix 避免二次拼接
       let activeRooms = 0;
+      const pre = config.redisPrefix;
       const allKeys = await redis.keys('room:meta:*');
       for (const k of allKeys) {
-        const status = await redis.hget(k, 'status');
+        const rawKey = k.startsWith(pre) ? k.slice(pre.length) : k;
+        const status = await redis.hget(rawKey, 'status');
         if (status === 'active') activeRooms++;
       }
 
