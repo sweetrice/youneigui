@@ -6,7 +6,10 @@ const GitHubStrategy = require('passport-github2').Strategy;
 const config = require('../config');
 
 // ========== 挂载 ampayer 子路由 ==========
-router.use('/ampayer', require('./ampayer'));
+const ampayerRouter = require('./ampayer');
+router.use('/ampayer', ampayerRouter);
+// ampayer 后台可能误配旧路径 /api/auth/wxcallback，给个别名兜底
+router.use('/wxcallback', ampayerRouter);
 
 // ========== 动态构建 callbackURL ==========
 function buildCallbackUrl(req, provider) {

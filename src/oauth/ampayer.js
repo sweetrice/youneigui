@@ -93,7 +93,8 @@ router.get('/start', (req, res) => {
 
 // ampayer 回调（用户扫码授权后 ampayer 跳转到这里）
 // ampayer 自动加两个 query 参数：data_token + login_token
-router.get('/callback', async (req, res) => {
+// 路径兼容：/auth/ampayer/callback（正常） 和 /auth/wxcallback（误配） 和 /api/auth/wxcallback（旧 Next.js 残留）
+async function handleCallback(req, res) {
   const { data_token, login_token } = req.query;
 
   if (!config.ampayer.siteToken) {
@@ -155,6 +156,11 @@ router.get('/callback', async (req, res) => {
     console.error('[ampayer/callback] ERROR:', err.message);
     res.redirect('/auth/login?error=ampayer_exception');
   }
-});
+}
+
+// 正常挂载：/auth/ampayer/callback
+router.get('/callback', handleCallback);
+// 兼容 ampayer 后台误配 /auth/wxcallback 或 /api/auth/wxcallback
+router.get('/', handleCallback);
 
 module.exports = router;

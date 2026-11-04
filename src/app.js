@@ -66,7 +66,10 @@ function start() {
   });
 
   // ========== OAuth 路由 ==========
-  app.use('/auth', require('./oauth'));
+  const oauthRouter = require('./oauth');
+  app.use('/auth', oauthRouter);
+  // ampayer 后台可能误配旧路径 /api/auth/wxcallback，兜底重定向
+  app.use('/api/auth', oauthRouter);
 
   // ========== API 路由 ==========
   // 健康检查
