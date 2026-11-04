@@ -129,12 +129,41 @@ async function joinRoom(roomId, user) {
   if (!room) throw new Error('room_not_found_or_destroyed');
   if (room.status !== 'active') throw new Error('room_destroyed');
 
-  // 检查是否已加入
-  const already = await client.exists(`room:${roomId}:member:${user.id}`);
-  if (already) return { room, isNewMember: false };
+  // 检查是否已加入——看 set 里有没有，同时补 hash（如果 hash 过期丢失了）
+  // 不能只靠 hash key exists：因为 members set 的 TTL 会被后加入者刷新，
+  // 但先加入者的 hash TTL 只设一次，可能先过期，导致 set 和 hash 不一致
+  const inSet = await client.sismember(`room:${roomId}:members`, user.id);
+  if (inSet) {
+    // set 里有，但 hash 可能过期了，补写一下
+    const hash = await client.hgetall(`room:${roomId}:member:${user.id}`);
+    if (!hash || !hash.id) {
+      await rewriteMemberHash(roomId, user);
+    }
+    return { room, isNewMember: false };
+  }
 
   await addMember(roomId, user);
   return { room, isNewMember: true };
+}
+
+/**
+ * 补写成员 hash（hash 过期但 set 里还有人的情况）
+ */
+async function rewriteMemberHash(roomId, user) {
+  const now = Date.now();
+  await client.hset(`room:${roomId}:member:${user.id}`, {
+    id: user.id,
+    nickname: user.nickname,
+    avatar: user.avatar || '',
+    oauth_provider: user.oauthProvider || '',
+    joined_at: String(now),
+  });
+  const meta = await client.hgetall(`room:meta:${roomId}`);
+  if (meta.destroy_at) {
+    const ttl = Math.max(60, Math.floor((Number(meta.destroy_at) - now) / 1000) + 3600);
+    await client.expire(`room:${roomId}:member:${user.id}`, ttl);
+  }
+  console.log(`[room] rewrote missing member hash ${user.id} in ${roomId}`);
 }
 
 async function addMember(roomId, user) {
@@ -147,12 +176,23 @@ async function addMember(roomId, user) {
     oauth_provider: user.oauthProvider || '',
     joined_at: String(now),
   });
-  // 成员 key TTL 跟随房间
+  // 统一 TTL：成员 hash 和 members set 用相同的过期时间
+  // 每次有人加入，刷新整个 members set + 所有人的 hash，确保不会出现 TTL 不一致
   const meta = await client.hgetall(`room:meta:${roomId}`);
   if (meta.destroy_at) {
     const ttl = Math.max(60, Math.floor((Number(meta.destroy_at) - now) / 1000) + 3600);
     await client.expire(`room:${roomId}:member:${user.id}`, ttl);
     await client.expire(`room:${roomId}:members`, ttl);
+    // 同时刷新所有现有成员的 hash TTL，防止先加入者的 hash 先过期
+    const existingIds = await client.smembers(`room:${roomId}:members`);
+    if (existingIds.length > 1) {
+      // 用 pipeline 批量 expire，性能可接受（每个房间不会有几十上百人）
+      const multi = client.multi();
+      for (const mid of existingIds) {
+        multi.expire(`room:${roomId}:member:${mid}`, ttl);
+      }
+      await multi.exec();
+    }
   }
 }
 
@@ -214,7 +254,9 @@ async function destroyRoom(roomId, actor, triggerType = 'manual') {
   await client.expire(`room:meta:${roomId}`, 7 * 24 * 60 * 60); // 审计日志保留 7 天
 
   // 写入审计日志
-  const memberCount = room.members.length;
+  // member_count 用 scard 直接数 set 大小，比 getRoom().members.length 更准确
+  // 因为 getRoom 会过滤 hash 过期的成员（hash 和 set TTL 不一致的边缘情况）
+  const memberCount = await client.scard(`room:${roomId}:members`) || room.members.length;
   const msgCount = room.messages.length;
   await client.lpush('audit:rooms', JSON.stringify({
     room_id: roomId,
