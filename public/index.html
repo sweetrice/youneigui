@@ -12,10 +12,8 @@
 
   <!-- 未登录：显示登录页 -->
   <div id="loginView" class="hidden">
-    <div style="text-align:center; padding: 48px 0 24px;">
-      <img src="/img/logo.svg" alt="有内鬼" style="width:88px; height:88px; margin-bottom:12px;">
-      <h1>有内鬼</h1>
-      <p class="tagline">「有内鬼，终止交易。」</p>
+    <div style="text-align:center; padding: 56px 0 24px;">
+      <img src="/img/logo.svg" alt="" style="width:120px; height:120px; margin-bottom:0;">
     </div>
     <div style="text-align:center; margin-bottom:12px;">
       <button data-i18n-switch class="btn btn-outline" style="padding:4px 14px; font-size:0.8rem;">EN</button>
@@ -86,9 +84,9 @@
 <div id="wxLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#1a1a2e;padding:28px 24px;border-radius:16px;text-align:center;max-width:340px;width:90vw;">
     <h3 style="color:#eee;margin:0 0 8px;font-size:1.1rem;">📱 微信扫码登录</h3>
-    <p style="color:#888;margin:0 0 16px;font-size:0.85rem;">打开微信，扫描下方二维码授权</p>
+    <p id="wxTip" style="color:#888;margin:0 0 16px;font-size:0.85rem;">打开微信，扫描下方二维码授权</p>
     <div id="wxQrBox" style="min-height:200px;display:flex;align-items:center;justify-content:center;color:#666;font-size:0.85rem;">加载中...</div>
-    <button onclick="document.getElementById('wxLoginModal').style.display='none'" style="margin-top:16px;background:transparent;border:1px solid #444;color:#aaa;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:0.85rem;">关闭</button>
+    <button onclick="closeWxModal()" style="margin-top:16px;background:transparent;border:1px solid #444;color:#aaa;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:0.85rem;">关闭</button>
   </div>
 </div>
 
@@ -131,29 +129,63 @@
     }
   }
 
+  let wxPollTimer = null;
+
   async function showWxQR() {
     // 微信内置浏览器：直接跳转 ampayer 授权页（H5 授权，无需扫码）
     if (/MicroMessenger/i.test(navigator.userAgent)) {
       window.location.href = '/auth/ampayer/start';
       return;
     }
-    // PC / 普通移动端：弹二维码
+    // PC / 普通移动端：弹二维码 + 轮询授权状态
     const modal = document.getElementById('wxLoginModal');
     const box = document.getElementById('wxQrBox');
+    const tip = document.getElementById('wxTip');
     modal.style.display = 'flex';
     box.innerHTML = '加载中...';
+    tip.textContent = '打开微信，扫描下方二维码授权';
+
     try {
       const r = await api.get('/auth/ampayer/init');
       if (!r.ok) { box.innerHTML = '❌ 登录初始化失败'; return; }
+      const loginToken = r.loginToken;
       box.innerHTML = '';
       new QRCode(box, {
         text: r.authUrl,
         width: 200, height: 200,
         correctLevel: QRCode.CorrectLevel.M,
       });
+
+      // 开始轮询
+      wxPollTimer = setInterval(async () => {
+        try {
+          const p = await api.get(`/auth/ampayer/poll?token=${loginToken}`);
+          if (p.status === 'expired') {
+            clearInterval(wxPollTimer);
+            tip.textContent = '⏰ 二维码已过期，请刷新页面重试';
+            return;
+          }
+          if (p.ok && p.status === 'authorized') {
+            clearInterval(wxPollTimer);
+            tip.textContent = '✅ 授权成功，正在登录...';
+            // 消费 token + 在 PC 建 session
+            await api.post('/auth/ampayer/consume', { token: loginToken });
+            document.getElementById('wxLoginModal').style.display = 'none';
+            window.location.reload();
+          }
+        } catch (e) {
+          // 单次轮询失败忽略，下次继续
+        }
+      }, 2000);
     } catch (e) {
       box.innerHTML = '❌ 网络错误，请重试';
     }
+  }
+
+  // 关闭二维码时停止轮询
+  function closeWxModal() {
+    if (wxPollTimer) { clearInterval(wxPollTimer); wxPollTimer = null; }
+    document.getElementById('wxLoginModal').style.display = 'none';
   }
 
   async function joinByCode(code, resultEl) {
