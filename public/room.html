@@ -84,6 +84,7 @@
     connected: false,
     destroyed: false,
     timerInterval: null,
+    pollTimer: null,
   };
 
   // 全局：前端时间偏移量（服务器时间 - 浏览器时间），用于修正服务器时间漂移
@@ -173,6 +174,7 @@
 
   function startCountdown() {
     if (state.timerInterval) clearInterval(state.timerInterval);
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
     const el = document.getElementById('countdown');
 
     const tick = () => {
@@ -198,9 +200,51 @@
       el.classList.remove('warn', 'danger');
       if (totalSec <= 60) el.classList.add('danger');
       else if (totalSec <= 600) el.classList.add('warn');
+
+      // 兜底：倒计时归零后主动轮询后端状态
+      if (totalSec <= 0 && !state.pollTimer) {
+        pollUntilDestroyed();
+      }
     };
     tick();
     state.timerInterval = setInterval(tick, 1000);
+  }
+
+  /**
+   * 倒计时到 0 后，每 3 秒查一次后端房间状态。
+   * 兜底场景：后端 scheduler 的 setTimeout 未触发 / Pub/Sub 丢消息 / 时间漂移。
+   * 一旦后端返回 destroyed，立即 showDestroyed()。
+   */
+  function pollUntilDestroyed() {
+    let polls = 0;
+    const MAX_POLLS = 60; // 最多轮询 3 分钟
+    state.pollTimer = setInterval(async () => {
+      if (state.destroyed) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        return;
+      }
+      polls++;
+      if (polls > MAX_POLLS) {
+        console.warn('[countdown] pollUntilDestroyed timed out after', MAX_POLLS, 'polls');
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        return;
+      }
+      try {
+        const r = await api.get(`/rooms/${state.roomId}`);
+        if (!r.ok || !r.room || r.room.status !== 'active') {
+          showDestroyed();
+          clearInterval(state.pollTimer);
+          state.pollTimer = null;
+        }
+      } catch (e) {
+        // 410 room_destroyed 或其他网络错误 → 尝试跳转
+        showDestroyed();
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    }, 3000);
   }
 
   function renderMsg(msg) {
@@ -234,6 +278,7 @@
     document.getElementById('chatView').classList.add('hidden');
     document.getElementById('destroyedView').classList.remove('hidden');
     if (state.timerInterval) clearInterval(state.timerInterval);
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
     if (state.ws) state.ws.close();
   }
 

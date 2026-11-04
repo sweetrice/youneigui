@@ -2,18 +2,36 @@
 
 const { client, rawClient } = require('../redis');
 const config = require('../config');
-const roomManager = require('../room/manager');
+// 注意：这里**不要**顶层 require('../room/manager')，会循环依赖
+// manager.js 顶层 require 了本文件 → 此时本文件还没执行到底
+// 所以改成函数内懒加载
 
 /**
- * 销毁定时器 + 三级提醒
+ * 销毁定时器 + 三级提醒 + 周期性兜底检查
  *
- * 设计：用 setTimeout 做精确到秒的定时，destroy_at 到达时立即执行销毁。
- * 同时注册 3 个提醒定时器（1h / 10min / 1min 剩余时触发）。
- *
- * 如果服务器重启，从 Redis 里扫一遍所有 status=active 的 room 重建定时器。
+ * 设计：
+ * - 用 setTimeout 做精确到秒的定时，destroy_at 到达时立即执行销毁
+ * - 同时注册 3 个提醒定时器（1h / 10min / 1min 剩余时触发）
+ * - 每 10 秒扫一遍所有已注册的定时器，兜底检查：
+ *     1. destroyAt 已过但 setTimeout 还没触发 → 立即销毁
+ *     2. 房间 Redis 元数据已变成 destroyed → cancel 对应的 timer
+ * - 如果服务器重启，从 Redis 里扫一遍所有 status=active 的 room 重建定时器
  */
 
 const timers = new Map(); // roomId -> { destroy, reminders: [] }
+
+// 兜底检查定时器
+let guardInterval = null;
+const GUARD_INTERVAL_MS = 10 * 1000; // 10 秒
+
+// 懒加载 roomManager（打破循环依赖）
+// manager.js 在顶层 require 本文件，本文件顶层再 require manager 就会拿到空 exports
+// 所以用 getter，等真正运行时再加载——那时 manager.js 早就完成了
+let _roomManager = null;
+function roomMgr() {
+  if (!_roomManager) _roomManager = require('../room/manager');
+  return _roomManager;
+}
 
 // 提醒节点（剩余多少秒时触发）
 const REMINDERS = [
@@ -31,12 +49,12 @@ async function register(roomId, destroyAt) {
   const now = Date.now();
   const destroyDelay = destroyAt - now;
 
-  const record = { destroy: null, reminders: [] };
+  const record = { destroyAt, destroy: null, reminders: [] };
 
   // 销毁定时器
   record.destroy = setTimeout(async () => {
     console.log(`[scheduler] auto-destroy trigger for ${roomId}`);
-    await roomManager.destroyRoom(roomId, null, 'auto');
+    await roomMgr().destroyRoom(roomId, null, 'auto');
     timers.delete(roomId);
   }, Math.max(0, destroyDelay));
 
@@ -66,6 +84,41 @@ async function cancel(roomId) {
     for (const t of record.reminders) clearTimeout(t);
     timers.delete(roomId);
   }
+}
+
+/**
+ * 周期性兜底检查（每 GUARD_INTERVAL_MS 执行一次）
+ *
+ * 扫一遍所有已注册的 room：
+ *   1. destroyAt 已过但 setTimeout 还没触发 → 手动调 destroyRoom
+ *   2. Redis 中房间已 destroyed → cancel timer（说明手动销毁已发生）
+ */
+function startGuard() {
+  if (guardInterval) return;
+  guardInterval = setInterval(async () => {
+    if (timers.size === 0) return;
+    const now = Date.now();
+    for (const [roomId, record] of timers) {
+      try {
+        // 检查 Redis 状态（可能已经手动销毁了）
+        const meta = await client.hgetall(`room:meta:${roomId}`);
+        if (!meta || meta.status === 'destroyed') {
+          console.log(`[scheduler][guard] room ${roomId} already destroyed in Redis, cleaning timer`);
+          cancel(roomId);
+          continue;
+        }
+        // destroyAt 已过但 setTimeout 还没触发 → 兜底销毁
+        if (record.destroyAt <= now) {
+          console.log(`[scheduler][guard] room ${roomId} past destroyAt, force destroying (destroyAt=${new Date(record.destroyAt).toISOString()}, now=${new Date(now).toISOString()})`);
+          await cancel(roomId);
+          await roomMgr().destroyRoom(roomId, null, 'auto');
+        }
+      } catch (e) {
+        console.error(`[scheduler][guard] error for ${roomId}:`, e.message);
+      }
+    }
+  }, GUARD_INTERVAL_MS);
+  console.log(`[scheduler][guard] started, checking every ${GUARD_INTERVAL_MS / 1000}s`);
 }
 
 /**
@@ -109,13 +162,16 @@ async function restore() {
           restored++;
         } else {
           console.log(`[scheduler] found expired room ${meta.room_id}, destroying now`);
-          await roomManager.destroyRoom(meta.room_id, null, 'auto');
+          await roomMgr().destroyRoom(meta.room_id, null, 'auto');
           expired++;
         }
       }
     }
   } while (cursor !== '0');
   console.log(`[scheduler] restored ${restored} active room timers, ${expired} expired rooms destroyed`);
+
+  // 启动周期性兜底检查
+  startGuard();
 }
 
 module.exports = { register, cancel, restore, REMINDERS };
