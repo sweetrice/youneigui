@@ -34,10 +34,19 @@ body {
   padding: 0;
 }
 
-/* 响应式：桌面端更宽 */
+/* 登录页 logo：手机 120px，桌面放大到 200px */
+.hero-logo {
+  width: 120px;
+  height: 120px;
+  display: block;
+  margin: 0 auto;
+}
+
+/* 响应式：桌面端更宽 + logo 放大 */
 @media (min-width: 768px) {
   .container { max-width: 720px; padding: 24px; }
   .container.chatroom { max-width: none; padding: 0; }
+  .hero-logo { width: 200px; height: 200px; }
 }
 
 /* 标题 */
