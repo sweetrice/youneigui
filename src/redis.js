@@ -37,6 +37,14 @@ rawClient.on('error', (err) => console.error('[redis/raw] error:', err.message))
  */
 async function destroyRoomKeys(roomId) {
   try {
+    // 先查一下 roomId 对应的房间码，后面要删 room:code:${code} 反向索引
+    // 如果 room:meta 已经被清了（这种情况极少），就跳过
+    let roomCode = null;
+    try {
+      const meta = await client.hgetall(`room:meta:${roomId}`);
+      if (meta && meta.room_code) roomCode = meta.room_code;
+    } catch {}
+
     // rawClient 返回带完整 prefix 的 key
     const keys = await rawClient.keys(`${config.redisPrefix}room:${roomId}*`);
     if (keys.length > 0) {
@@ -49,6 +57,10 @@ async function destroyRoomKeys(roomId) {
     const members = await client.smembers(`room:${roomId}:members`);
     for (const memberId of members) {
       await client.del(`room:${roomId}:member:${memberId}`);
+    }
+    // 清理 room -> roomId 反向索引（手动销毁时立即可回收 roomCode）
+    if (roomCode) {
+      await client.del(`room:code:${roomCode}`);
     }
     console.log(`[redis] destroyed all keys for room ${roomId}`);
   } catch (e) {

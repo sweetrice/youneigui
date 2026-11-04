@@ -53,6 +53,8 @@ async function createRoom(creator, data) {
   });
   // 房间码 -> room_id 反向索引
   await client.set(`room:code:${roomCode}`, roomId);
+  // 房间码索引也必须设 TTL，否则会永远累积（唯一反向索引！）
+  await client.expire(`room:code:${roomCode}`, destroySeconds + 3600);
   // 设置整个 key 的 TTL（兜底，即使销毁定时器挂了也会自动清）
   await client.expire(`room:meta:${roomId}`, destroySeconds + 3600); // 多 1h 缓冲
 
