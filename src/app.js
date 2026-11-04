@@ -112,6 +112,7 @@ function start() {
       console.log(`   局域网:  http://${lanIp}:${config.port}`);
       console.log(`   Redis: ${redisReady ? '✅ connected' : '❌ not available (using MemoryStore)'}`);
       console.log(`   GitHub OAuth: ${config.github.clientId ? '✅' : '❌ not configured'}`);
+      console.log(`   Ampayer 微信: ${config.ampayer.siteToken ? '✅' : '❌ not configured'}`);
       console.log(`   WebSocket: ${redisReady ? '✅' : '❌ disabled (needs Redis)'}\n`);
     });
   };

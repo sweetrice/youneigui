@@ -25,6 +25,7 @@
         临时沟通协商窗口：聊成了自愿加好友，聊崩了一键取消交易，数据立即清空，谁也不欠谁。
       </p>
       <a class="btn btn-secondary" href="/auth/github">使用 GitHub 登录</a>
+      <button class="btn btn-wechat full-width" id="wxLoginBtn" style="margin-top:10px; display:none;">📱 微信扫码登录</button>
     </div>
     <p class="muted center" style="margin-top:16px;">
       我们仅存储昵称和头像用于会话内展示，销毁后立即清除
@@ -79,8 +80,19 @@
 
 </div>
 
+<!-- 微信扫码登录模态框 -->
+<div id="wxLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#1a1a2e;padding:28px 24px;border-radius:16px;text-align:center;max-width:340px;width:90vw;">
+    <h3 style="color:#eee;margin:0 0 8px;font-size:1.1rem;">📱 微信扫码登录</h3>
+    <p style="color:#888;margin:0 0 16px;font-size:0.85rem;">打开微信，扫描下方二维码授权</p>
+    <div id="wxQrBox" style="min-height:200px;display:flex;align-items:center;justify-content:center;color:#666;font-size:0.85rem;">加载中...</div>
+    <button onclick="document.getElementById('wxLoginModal').style.display='none'" style="margin-top:16px;background:transparent;border:1px solid #444;color:#aaa;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:0.85rem;">关闭</button>
+  </div>
+</div>
+
 <script src="/js/i18n.js"></script>
 <script src="/js/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
   async function init() {
     const user = await api.get('/auth/me');
@@ -102,6 +114,37 @@
     } else {
       document.getElementById('loginView').classList.remove('hidden');
       document.getElementById('homeView').classList.add('hidden');
+
+      // 检查 ampayer 是否可用，可用则显示微信登录按钮
+      try {
+        const r = await api.get('/auth/ampayer/init');
+        if (r.ok) {
+          const wxBtn = document.getElementById('wxLoginBtn');
+          wxBtn.style.display = 'block';
+          wxBtn.onclick = showWxQR;
+        }
+      } catch {
+        // ampayer 未配置，跳过
+      }
+    }
+  }
+
+  async function showWxQR() {
+    const modal = document.getElementById('wxLoginModal');
+    const box = document.getElementById('wxQrBox');
+    modal.style.display = 'flex';
+    box.innerHTML = '加载中...';
+    try {
+      const r = await api.get('/auth/ampayer/init');
+      if (!r.ok) { box.innerHTML = '❌ 登录初始化失败'; return; }
+      box.innerHTML = '';
+      new QRCode(box, {
+        text: r.authUrl,
+        width: 200, height: 200,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    } catch (e) {
+      box.innerHTML = '❌ 网络错误，请重试';
     }
   }
 
