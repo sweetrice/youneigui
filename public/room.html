@@ -172,15 +172,6 @@
     if (state.timerInterval) clearInterval(state.timerInterval);
     const el = document.getElementById('countdown');
 
-    // 调试：打印初始 destroyAt
-    if (state.room) {
-      console.log('[countdown] init destroyAt=' + state.room.destroyAt + ' (' + typeof state.room.destroyAt + ')');
-      console.log('[countdown] Date.now=' + Date.now());
-      if (state.room.destroyAt) {
-        console.log('[countdown] remain=' + Math.round((state.room.destroyAt - Date.now())/1000) + 's');
-      }
-    }
-
     const tick = () => {
       if (state.destroyed) return;
       if (!state.room || !state.room.destroyAt) {
