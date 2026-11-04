@@ -12,7 +12,13 @@ router.use('/ampayer', ampayerRouter);
 router.use('/wxcallback', ampayerRouter);
 
 // ========== 动态构建 callbackURL ==========
+// 优先用 config 里配好的固定值（正式服务器有 nginx 反代头，但本地没有）
+// 只有 config 没配时才从请求头动态拼（兜底）
 function buildCallbackUrl(req, provider) {
+  if (provider === 'github' && config.github.callbackURL) {
+    return config.github.callbackURL;
+  }
+  // ampayer 不走这里，它自己有 config.ampayer.callbackURL
   const host = req.headers.host;
   const protocol = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
   return `${protocol}://${host}/auth/${provider}/callback`;
