@@ -6,7 +6,7 @@ const session = require('express-session');
 const passport = require('passport');
 const path = require('path');
 const config = require('./config');
-const { client: redis } = require('./redis');
+const { client: redis, rawClient } = require('./redis');
 
 // Redis 连接状态标记
 let redisReady = false;
@@ -89,16 +89,20 @@ function start() {
     if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
     try {
       // 1. 活跃房间数
-      // 用 SCAN 替代 KEYS：KEYS 是阻塞命令，且在 ioredis keyPrefix 下有已知坑
-      // scan() 返回带 prefix 的 key，后续 hget 要 slice 掉 prefix 避免二次拼接
+      // 用 rawClient（不带 keyPrefix）+ SCAN，绕开 ioredis keyPrefix 在 keys()/scan() 上的 bug
       let activeRooms = 0;
-      const pre = config.redisPrefix;
-      // scan 迭代器，pattern 不用手动加 prefix（ioredis 自动处理）
-      for await (const k of redis.scanIterator({ match: 'room:meta:*', count: 100 })) {
-        const rawKey = k.startsWith(pre) ? k.slice(pre.length) : k;
-        const status = await redis.hget(rawKey, 'status');
-        if (status === 'active') activeRooms++;
-      }
+      const fullPattern = `${config.redisPrefix}room:meta:*`;
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await rawClient.scan(cursor, 'MATCH', fullPattern, 'COUNT', 100);
+        cursor = nextCursor;
+        for (const fullKey of keys) {
+          // fullKey 是完整的（yg:room:meta:xxx），用带 prefix 的 redis.hget 要 slice 掉 prefix
+          const rawKey = fullKey.slice(config.redisPrefix.length);
+          const status = await redis.hget(rawKey, 'status');
+          if (status === 'active') activeRooms++;
+        }
+      } while (cursor !== '0');
 
       // 2. 审计日志汇总
       const rawLogs = await redis.lrange('audit:rooms', 0, -1);
