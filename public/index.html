@@ -24,8 +24,10 @@
       <p style="font-size:0.85rem; color:#aaa; line-height:1.6; margin-bottom:20px;">
         临时沟通协商窗口：聊成了自愿加好友，聊崩了一键取消交易，数据立即清空，谁也不欠谁。
       </p>
-      <a class="btn btn-secondary" href="/auth/github">使用 GitHub 登录</a>
-      <button class="btn btn-wechat full-width" id="wxLoginBtn" style="margin-top:10px; display:none;">📱 微信扫码登录</button>
+      <div style="display:flex; gap:8px;">
+        <a class="btn btn-secondary" href="/auth/github" style="flex:1; margin:0;">GitHub 登录</a>
+        <button class="btn btn-wechat" id="wxLoginBtn" style="flex:1; margin:0; display:none;">微信登录</button>
+      </div>
     </div>
     <p class="muted center" style="margin-top:16px;">
       我们仅存储昵称和头像用于会话内展示，销毁后立即清除
@@ -130,6 +132,12 @@
   }
 
   async function showWxQR() {
+    // 微信内置浏览器：直接跳转 ampayer 授权页（H5 授权，无需扫码）
+    if (/MicroMessenger/i.test(navigator.userAgent)) {
+      window.location.href = '/auth/ampayer/start';
+      return;
+    }
+    // PC / 普通移动端：弹二维码
     const modal = document.getElementById('wxLoginModal');
     const box = document.getElementById('wxQrBox');
     modal.style.display = 'flex';

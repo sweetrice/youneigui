@@ -74,34 +74,40 @@ h1{font-size:1.5rem;margin-bottom:0.5rem}
 <h1>有内鬼 🎬</h1>
 <p class="sub">登录以创建或加入临时会话，聊完即焚，不沉淀任何社交关系</p>
 ${error ? '<div class="err">❌ 登录失败，请重试</div>' : ''}
-${config.ampayer.siteToken ? '<button class="btn btn-wechat" onclick="showWxQR()">📱 微信扫码登录</button>' : ''}
-${config.github.clientId ? '<a class="btn btn-github" href="/auth/github">使用 GitHub 登录</a>' : ''}
-<a class="btn btn-secondary" href="/auth/mock?name=测试用户">🧪 开发模式 Mock 登录</a>
+<div style="display:flex;gap:8px;width:260px;margin:10px 0">
+${config.github.clientId ? '<a class="btn btn-github" href="/auth/github" style="flex:1;margin:0">GitHub 登录</a>' : ''}
+${config.ampayer.siteToken ? '<button class="btn btn-wechat" onclick="showWxQR()" style="flex:1;margin:0">微信登录</button>' : ''}
+</div>
+<a class="btn btn-secondary" href="/auth/mock?name=测试用户">🧪 Mock 登录（开发）</a>
 ${!config.github.clientId && !config.ampayer.siteToken ? '<p style="color:#888">OAuth 尚未配置，请联系管理员</p>' : ''}
 <p class="note">我们仅存储你的昵称和头像用于会话内展示，销毁后立即清除</p>
 ${config.ampayer.siteToken ? `
-<div id="wxModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:none;align-items:center;justify-content:center">
+<div id="wxModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center">
   <div style="background:#1a1a2e;padding:32px;border-radius:16px;text-align:center;max-width:340px">
     <h3 style="color:#eee;margin:0 0 16px;font-size:1.1rem">📱 微信扫码登录</h3>
-    <p style="color:#aaa;margin:0 0 16px;font-size:0.85rem">用微信扫描下方二维码授权登录</p>
+    <p style="color:#aaa;margin:0 0 16px;font-size:0.85rem">打开微信扫描下方二维码授权</p>
     <div id="wxQrBox" style="min-height:200px;display:flex;align-items:center;justify-content:center;color:#666">加载中...</div>
     <button onclick="document.getElementById('wxModal').style.display='none'" style="margin-top:16px;background:transparent;border:1px solid #444;color:#aaa;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:0.85rem">关闭</button>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
-async function showWxQR(){
+function showWxQR(){
+  // 微信内置浏览器：直接跳 ampayer start 做 H5 授权
+  if(/MicroMessenger/i.test(navigator.userAgent)){
+    window.location.href='/auth/ampayer/start';
+    return;
+  }
+  // PC：弹二维码
   const modal = document.getElementById('wxModal');
   const box = document.getElementById('wxQrBox');
   modal.style.display='flex';
   box.innerHTML='加载中...';
-  try {
-    const r = await fetch('/auth/ampayer/init');
-    const d = await r.json();
-    if(!d.ok){ box.innerHTML='❌ 登录初始化失败'; return; }
+  fetch('/auth/ampayer/init').then(r=>r.json()).then(d=>{
+    if(!d.ok){box.innerHTML='❌ 初始化失败';return;}
     box.innerHTML='';
-    new QRCode(box, { text: d.authUrl, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
-  } catch(e){ box.innerHTML='❌ 网络错误，请重试'; }
+    new QRCode(box,{text:d.authUrl,width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
+  }).catch(()=>{box.innerHTML='❌ 网络错误';});
 }
 </script>` : ''}
 </body></html>`);

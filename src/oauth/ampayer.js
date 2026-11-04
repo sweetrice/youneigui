@@ -51,88 +51,44 @@ function ampayerPost(url, bodyObj) {
   });
 }
 
-// ampayer init 也用 POST（skill 里说 POST），但 body 为空，参数在 query string
-// 让我试试用 query string 的方式发——直接 https.request 带 query 参数
-function ampayerInit(siteToken, loginToken) {
-  return new Promise((resolve, reject) => {
-    const url = `https://api.ampayer.cn/apis/wxauth/init/?site_token=${encodeURIComponent(siteToken)}&login_token=${encodeURIComponent(loginToken)}`;
-    const u = new URL(url);
+// 辅助：生成 authUrl（init 路由和 start 路由都要用）
+function buildAuthUrl(loginToken) {
+  return `https://api.ampayer.cn/apis/wxauth/init/?site_token=${encodeURIComponent(config.ampayer.siteToken)}&login_token=${encodeURIComponent(loginToken)}`;
+}
 
-    const req = https.request({
-      method: 'POST',
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'YouNeiGui/1.0',
-      },
-      timeout: 10000,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        resolve({ status: res.statusCode, body: data });
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('ampayer init timeout')); });
-    req.end();
-  });
+// 辅助：检测微信 UA
+function isWechat(req) {
+  const ua = req.headers['user-agent'] || '';
+  return /MicroMessenger/i.test(ua);
 }
 
 // ========== 路由 ==========
 
-// 生成 login_token 并请求 ampayer 授权页 URL
+// PC 用：生成 authUrl 返回 JSON，前端画二维码
 router.get('/init', async (req, res) => {
   if (!config.ampayer.siteToken) {
     return res.status(500).json({ ok: false, error: 'ampayer_not_configured', message: 'AMPAYER_SITE_TOKEN 未配置' });
   }
+  // init 路由同时兼容 H5 —— 如果前端在微信里调了 init，后端直接 302 过去省得前端再跳
+  if (isWechat(req)) {
+    const loginToken = crypto.randomBytes(16).toString('hex');
+    console.log(`[ampayer/init] wechat UA detected, redirecting. login_token=${loginToken}`);
+    return res.redirect(buildAuthUrl(loginToken));
+  }
 
   const loginToken = crypto.randomBytes(16).toString('hex');
   console.log(`[ampayer/init] login_token=${loginToken}`);
+  res.json({ ok: true, authUrl: buildAuthUrl(loginToken), loginToken });
+});
 
-  try {
-    // 先试试带 body 的 init（可能 ampayer 也接受，参考 skill）
-    // 但 skill 里的 curl 没有 body，只有 query string，所以用 ampayerInit()
-    const resp = await ampayerInit(config.ampayer.siteToken, loginToken);
-    console.log(`[ampayer/init] ampayer response status=${resp.status}`);
-
-    // ampayer init 可能返回：
-    // a) 一段 HTML（直接就是授权页）
-    // b) 一个 JSON 对象包含 authUrl
-    // c) 一个 302 redirect
-    let authUrl = null;
-
-    if (resp.status >= 300 && resp.status < 400) {
-      // redirect — 读 Location header？Node https.request 默认不自动重定向
-      // 我们的 https.request 没 follow redirect，直接看 response.headers.location
-      // 但因为我们没用 followRedirect，让我重试带自动 follow...
-      // 简化：再发一次请求获取真实 URL
-      authUrl = resp.body && resp.body.startsWith('http') ? resp.body : null;
-    }
-
-    if (!authUrl && resp.body) {
-      // 尝试解析 JSON
-      try {
-        const j = JSON.parse(resp.body);
-        authUrl = j.authUrl || j.url || j.data || (j.data && j.data.authUrl) || null;
-      } catch {
-        // 不是 JSON — 可能就是一段 HTML（授权页），直接用 ampayer 的 init URL 当 authUrl
-        // 或者 ampayer 直接返回了 HTML，我们应该把 init URL 作为二维码内容
-        authUrl = `https://api.ampayer.cn/apis/wxauth/init/?site_token=${config.ampayer.siteToken}&login_token=${loginToken}`;
-      }
-    }
-
-    // 如果 ampayer init 返回的就是一段 HTML 授权页，那 authUrl 就是它本身
-    if (!authUrl) {
-      authUrl = `https://api.ampayer.cn/apis/wxauth/init/?site_token=${config.ampayer.siteToken}&login_token=${loginToken}`;
-    }
-
-    res.json({ ok: true, authUrl, loginToken });
-  } catch (err) {
-    console.error('[ampayer/init] ERROR:', err.message);
-    res.status(500).json({ ok: false, error: 'ampayer_init_failed', message: err.message });
+// 微信 H5 专用：302 redirect 到 ampayer 授权页（不返回 JSON）
+router.get('/start', (req, res) => {
+  if (!config.ampayer.siteToken) {
+    return res.redirect('/auth/login?error=ampayer_not_configured');
   }
+  const loginToken = crypto.randomBytes(16).toString('hex');
+  console.log(`[ampayer/start] redirecting. login_token=${loginToken} wechat=${isWechat(req)}`);
+  res.redirect(buildAuthUrl(loginToken));
 });
 
 // ampayer 回调（用户扫码授权后 ampayer 跳转到这里）
