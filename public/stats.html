@@ -7,93 +7,127 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { overflow-x: hidden; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
     background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
     color: #e0e0e0;
     min-height: 100vh;
-    padding: 20px;
+    padding: 16px;
+    max-width: 100vw;
   }
+  @media (min-width: 640px) { body { padding: 20px; } }
   .container { max-width: 1000px; margin: 0 auto; }
   header {
     text-align: center;
-    padding: 20px 0 30px;
+    padding: 16px 0 24px;
   }
   header h1 {
-    font-size: 1.8rem;
+    font-size: 1.5rem;
     font-weight: 600;
     color: #fff;
     margin-bottom: 6px;
   }
+  @media (min-width: 640px) {
+    header { padding: 20px 0 30px; }
+    header h1 { font-size: 1.8rem; }
+  }
   header h1 span { color: #e74c3c; }
-  header p { color: #888; font-size: 0.9rem; }
+  header p { color: #888; font-size: 0.85rem; }
+  @media (min-width: 640px) { header p { font-size: 0.9rem; } }
 
   .kpi-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 14px;
-    margin-bottom: 24px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
   }
+  @media (min-width: 480px) { .kpi-row { grid-template-columns: repeat(4, 1fr); gap: 12px; } }
+  @media (min-width: 640px) { .kpi-row { grid-template-columns: repeat(6, 1fr); gap: 14px; } }
   .kpi {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 12px;
-    padding: 18px 16px;
+    padding: 14px 8px;
     text-align: center;
     transition: transform 0.2s, border-color 0.2s;
+    min-width: 0;
   }
+  @media (min-width: 640px) { .kpi { padding: 18px 16px; } }
   .kpi:hover { transform: translateY(-2px); border-color: rgba(231,76,60,0.3); }
   .kpi .num {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: #fff;
     font-variant-numeric: tabular-nums;
+    line-height: 1.1;
   }
+  @media (min-width: 640px) { .kpi .num { font-size: 2rem; } }
   .kpi .label {
-    font-size: 0.78rem;
+    font-size: 0.65rem;
     color: #888;
     margin-top: 4px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
+  @media (min-width: 640px) { .kpi .label { font-size: 0.78rem; } }
   .kpi.active .num { color: #07c160; }
   .kpi.manual .num { color: #e74c3c; }
   .kpi.auto .num { color: #f39c12; }
 
   .chart-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 24px;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
   }
-  @media (max-width: 640px) {
-    .chart-row { grid-template-columns: 1fr; }
+  @media (min-width: 640px) {
+    .chart-row { grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
   }
   .card {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 12px;
-    padding: 18px;
+    padding: 14px;
+    min-width: 0;
+    overflow: hidden;
   }
+  @media (min-width: 640px) { .card { padding: 18px; } }
   .card h2 {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: 500;
     color: #aaa;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     letter-spacing: 0.5px;
   }
-  .chart { height: 240px; }
+  @media (min-width: 640px) { .card h2 { font-size: 0.9rem; margin-bottom: 12px; } }
+  .chart { height: 220px; width: 100%; }
+  @media (min-width: 640px) { .chart { height: 240px; } }
 
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+  @media (min-width: 640px) { .table-wrap { margin: 0 -18px; padding: 0 18px; } }
   table {
     width: 100%;
+    min-width: 520px;
     border-collapse: collapse;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
   }
+  @media (min-width: 640px) { table { font-size: 0.85rem; } }
   th, td {
-    padding: 10px 12px;
+    padding: 8px 8px;
     text-align: left;
     border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
   }
+  @media (min-width: 640px) { th, td { padding: 10px 12px; } }
   th {
     color: #888;
     font-weight: 500;
@@ -182,7 +216,7 @@
     <!-- Table -->
     <div class="card">
       <h2>最近销毁的会话</h2>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table id="tbl">
           <thead>
             <tr>
