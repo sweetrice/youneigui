@@ -84,6 +84,52 @@ function start() {
   app.use('/api/rooms', require('./room/routes'));
   app.use('/api/export', require('./export/routes'));
 
+  // ========== 审计统计（公开，数据已脱敏）==========
+  app.get('/api/stats', async (req, res) => {
+    if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
+    try {
+      // 1. 活跃房间数
+      let activeRooms = 0;
+      const allKeys = await redis.keys('room:meta:*');
+      for (const k of allKeys) {
+        const status = await redis.hget(k, 'status');
+        if (status === 'active') activeRooms++;
+      }
+
+      // 2. 审计日志汇总
+      const rawLogs = await redis.lrange('audit:rooms', 0, -1);
+      const logs = rawLogs.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+
+      const summary = {
+        totalRooms: logs.length + activeRooms,
+        activeRooms,
+        destroyedRooms: logs.length,
+        totalMessages: logs.reduce((s, l) => s + (l.message_count || 0), 0),
+        totalMembers: logs.reduce((s, l) => s + (l.member_count || 0), 0),
+        manualDestroy: logs.filter(l => l.destroy_trigger === 'manual').length,
+        autoDestroy: logs.filter(l => l.destroy_trigger === 'auto').length,
+        avgMembersPerRoom: logs.length ? +(logs.reduce((s, l) => s + (l.member_count || 0), 0) / logs.length).toFixed(1) : 0,
+        avgMessagesPerRoom: logs.length ? +(logs.reduce((s, l) => s + (l.message_count || 0), 0) / logs.length).toFixed(1) : 0,
+      };
+
+      // 3. 最近 20 条明细
+      const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+      const recent = logs.slice(0, limit).map(l => ({
+        roomId: l.room_id,
+        destroyAt: l.destroy_at,
+        destroyTrigger: l.destroy_trigger,
+        destroyActorRole: l.destroy_actor_role,
+        memberCount: l.member_count,
+        messageCount: l.message_count,
+      }));
+
+      res.json({ ok: true, summary, recent });
+    } catch (e) {
+      console.error('[api/stats] error:', e.message);
+      res.status(500).json({ ok: false, error: 'internal_error' });
+    }
+  });
+
   // 无 Redis 时的兜底：房间相关路由返回友好错误
   if (!redisReady) {
     app.use(['/api/rooms', '/api/export'], (err, req, res, next) => {
