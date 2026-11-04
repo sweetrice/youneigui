@@ -255,12 +255,11 @@ async function destroyRoom(roomId, actor, triggerType = 'manual') {
   await client.persist(`room:meta:${roomId}`); // 先取消原有 TTL
   await client.expire(`room:meta:${roomId}`, 7 * 24 * 60 * 60); // 审计日志保留 7 天
 
-  // 写入审计日志
-  // member_count 用 scard 直接数 set 大小，比 getRoom().members.length 更准确
-  // 因为 getRoom 会过滤 hash 过期的成员（hash 和 set TTL 不一致的边缘情况）
+  // 写入审计日志（用 ZSET，score=destroy_at，天然支持元素级过期清理）
+  // 注意：不用 List + EXPIRE——因为每次 LPUSH 会刷新整个 List 的 TTL，导致永远不过期
   const memberCount = await client.scard(`room:${roomId}:members`) || room.members.length;
   const msgCount = room.messages.length;
-  await client.lpush('audit:rooms', JSON.stringify({
+  const auditEntry = JSON.stringify({
     room_id: roomId,
     destroy_at: Date.now(),
     destroy_trigger: triggerType, // 'manual' | 'auto'
@@ -268,8 +267,10 @@ async function destroyRoom(roomId, actor, triggerType = 'manual') {
     member_count: memberCount,
     message_count: msgCount,
     topic_length: room.topic.length,
-  }));
-  await client.expire('audit:rooms', 90 * 24 * 60 * 60); // 审计日志保留 90 天
+  });
+  // ZADD score=destroy_at(时间戳)，member=JSON
+  // stats 接口会用 ZREMRANGEBYSCORE 清理 90 天前的过期项，不设全局 EXPIRE
+  await client.zadd('audit:rooms', Date.now(), auditEntry);
 
   // 写销毁通知（通过 Redis Pub/Sub 通知 WebSocket 层）
   await client.publish('room:destroyed', JSON.stringify({

@@ -116,8 +116,14 @@ function start() {
         }
       } while (cursor !== '0');
 
-      // 2. 审计日志汇总（只记录已销毁房间）
-      const rawLogs = await redis.lrange('audit:rooms', 0, -1);
+      // 2. 审计日志汇总（已销毁房间）
+      // 先清理 90 天前的过期项（ZSET score=destroy_at 时间戳）
+      const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - NINETY_DAYS_MS;
+      await redis.zremrangebyscore('audit:rooms', '-inf', cutoff);
+
+      // ZREVRANGE 按 score 降序取（最新的在前），全量读做汇总（90 天内不会太多）
+      const rawLogs = await redis.zrevrange('audit:rooms', 0, -1);
       const logs = rawLogs.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
 
       const totalMessagesFromLogs = logs.reduce((s, l) => s + (l.message_count || 0), 0);
