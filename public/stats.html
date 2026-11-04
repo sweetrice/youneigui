@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>有内鬼 · 统计</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .container { max-width: 1000px; margin: 0 auto; }
+  header {
+    text-align: center;
+    padding: 20px 0 30px;
+  }
+  header h1 {
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+  header h1 span { color: #e74c3c; }
+  header p { color: #888; font-size: 0.9rem; }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .kpi {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .kpi:hover { transform: translateY(-2px); border-color: rgba(231,76,60,0.3); }
+  .kpi .num {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi .label {
+    font-size: 0.78rem;
+    color: #888;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .kpi.active .num { color: #07c160; }
+  .kpi.manual .num { color: #e74c3c; }
+  .kpi.auto .num { color: #f39c12; }
+
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 640px) {
+    .chart-row { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card h2 {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #aaa;
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+  }
+  .chart { height: 240px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  th {
+    color: #888;
+    font-weight: 500;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tr:hover { background: rgba(255,255,255,0.02); }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+  }
+  .tag.manual { background: rgba(231,76,60,0.15); color: #e74c3c; }
+  .tag.auto { background: rgba(243,156,18,0.15); color: #f39c12; }
+  .tag.creator { background: rgba(7,193,96,0.15); color: #07c160; }
+  .tag.member { background: rgba(52,152,219,0.15); color: #3498db; }
+  .tag.system { background: rgba(149,165,166,0.15); color: #95a5a6; }
+  .room-id { font-family: monospace; color: #aaa; }
+
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: #666;
+  }
+  .error {
+    text-align: center;
+    padding: 40px;
+    color: #e74c3c;
+    background: rgba(231,76,60,0.1);
+    border-radius: 12px;
+  }
+  footer {
+    text-align: center;
+    padding: 20px;
+    color: #555;
+    font-size: 0.75rem;
+  }
+  footer a { color: #888; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span>🎬</span> 有内鬼 · 运行统计</h1>
+    <p>数据每 60 秒自动刷新 · 仅展示脱敏后的汇总指标</p>
+  </header>
+
+  <div id="loading" class="loading">加载中...</div>
+
+  <div id="content" style="display:none">
+    <!-- KPI -->
+    <div class="kpi-row">
+      <div class="kpi"><div class="num" id="kpi-total">-</div><div class="label">总会话</div></div>
+      <div class="kpi active"><div class="num" id="kpi-active">-</div><div class="label">进行中</div></div>
+      <div class="kpi"><div class="num" id="kpi-members">-</div><div class="label">总人次</div></div>
+      <div class="kpi"><div class="num" id="kpi-messages">-</div><div class="label">总消息</div></div>
+      <div class="kpi manual"><div class="num" id="kpi-manual">-</div><div class="label">手动销毁</div></div>
+      <div class="kpi auto"><div class="num" id="kpi-auto">-</div><div class="label">自动销毁</div></div>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-row">
+      <div class="card">
+        <h2>销毁方式分布</h2>
+        <div class="chart" id="chart-destroy"></div>
+      </div>
+      <div class="card">
+        <h2>销毁者角色分布</h2>
+        <div class="chart" id="chart-role"></div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="card">
+        <h2>每会话平均</h2>
+        <div class="chart" id="chart-avg"></div>
+      </div>
+      <div class="card">
+        <h2>活跃 / 已销毁</h2>
+        <div class="chart" id="chart-status"></div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <h2>最近销毁的会话</h2>
+      <div style="overflow-x:auto">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Room ID</th>
+              <th>销毁时间</th>
+              <th>方式</th>
+              <th>销毁者</th>
+              <th>人数</th>
+              <th>消息</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="/">← 返回首页</a>
+  </footer>
+</div>
+
+<script>
+const DARK = {
+  text: '#e0e0e0',
+  sub: '#888',
+  axis: '#555',
+  split: 'rgba(255,255,255,0.06)',
+};
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtRel(ts) {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return s + ' 秒前';
+  if (s < 3600) return Math.floor(s/60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s/3600) + ' 小时前';
+  return Math.floor(s/86400) + ' 天前';
+}
+
+function renderCharts(data) {
+  const { summary, recent } = data;
+
+  // 销毁方式饼图
+  echarts.init(document.getElementById('chart-destroy'), 'dark').setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: DARK.sub } },
+    series: [{
+      type: 'pie',
+      radius: ['45%', '70%'],
+      avoidLabelOverlap: false,
+      label: { show: false },
+      data: [
+        { value: summary.manualDestroy, name: '手动', itemStyle: { color: '#e74c3c' } },
+        { value: summary.autoDestroy, name: '自动', itemStyle: { color: '#f39c12' } },
+      ].filter(d => d.value > 0),
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' } },
+    }],
+  });
+
+  // 销毁者角色
+  const roleCount = { creator: 0, member: 0, system: 0 };
+  recent.forEach(r => { roleCount[r.destroyActorRole] = (roleCount[r.destroyActorRole]||0) + 1; });
+  echarts.init(document.getElementById('chart-role'), 'dark').setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: DARK.sub } },
+    series: [{
+      type: 'pie',
+      radius: ['45%', '70%'],
+      label: { show: false },
+      data: [
+        { value: roleCount.creator, name: '创建者', itemStyle: { color: '#07c160' } },
+        { value: roleCount.member, name: '成员', itemStyle: { color: '#3498db' } },
+        { value: roleCount.system, name: '系统', itemStyle: { color: '#95a5a6' } },
+      ].filter(d => d.value > 0),
+    }],
+  });
+
+  // 平均水平柱状图
+  echarts.init(document.getElementById('chart-avg'), 'dark').setOption({
+    backgroundColor: 'transparent',
+    grid: { top: 10, right: 20, bottom: 30, left: 50 },
+    tooltip: {},
+    xAxis: { type: 'category', data: ['人数', '消息数'], axisLabel: { color: DARK.sub }, axisLine: { lineStyle: { color: DARK.axis } } },
+    yAxis: { type: 'value', axisLabel: { color: DARK.sub }, splitLine: { lineStyle: { color: DARK.split } } },
+    series: [{
+      type: 'bar',
+      data: [summary.avgMembersPerRoom, summary.avgMessagesPerRoom],
+      barWidth: '50%',
+      itemStyle: { borderRadius: [6,6,0,0], color: new echarts.graphic.LinearGradient(0,0,0,1,[
+        { offset: 0, color: '#e74c3c' },
+        { offset: 1, color: '#c0392b' },
+      ]) },
+      label: { show: true, position: 'top', color: '#fff', formatter: '{c}' },
+    }],
+  });
+
+  // 活跃 vs 销毁
+  echarts.init(document.getElementById('chart-status'), 'dark').setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: DARK.sub } },
+    series: [{
+      type: 'pie',
+      radius: '70%',
+      label: { color: DARK.sub },
+      data: [
+        { value: summary.activeRooms, name: '进行中', itemStyle: { color: '#07c160' } },
+        { value: summary.destroyedRooms, name: '已销毁', itemStyle: { color: '#555' } },
+      ].filter(d => d.value > 0),
+    }],
+  });
+}
+
+function renderTable(recent) {
+  const tbody = document.getElementById('tbl-body');
+  if (!recent.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:24px">暂无数据</td></tr>';
+    return;
+  }
+  tbody.innerHTML = recent.map(r => `
+    <tr>
+      <td class="room-id">${r.roomId}</td>
+      <td title="${fmtTime(r.destroyAt)}">${fmtRel(r.destroyAt)}</td>
+      <td><span class="tag ${r.destroyTrigger}">${r.destroyTrigger === 'manual' ? '手动' : '自动'}</span></td>
+      <td><span class="tag ${r.destroyActorRole}">${
+        r.destroyActorRole === 'creator' ? '创建者' :
+        r.destroyActorRole === 'member' ? '成员' : '系统'
+      }</span></td>
+      <td>${r.memberCount}</td>
+      <td>${r.messageCount}</td>
+    </tr>
+  `).join('');
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '加载失败');
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    const s = data.summary;
+    document.getElementById('kpi-total').textContent = s.totalRooms;
+    document.getElementById('kpi-active').textContent = s.activeRooms;
+    document.getElementById('kpi-members').textContent = s.totalMembers;
+    document.getElementById('kpi-messages').textContent = s.totalMessages;
+    document.getElementById('kpi-manual').textContent = s.manualDestroy;
+    document.getElementById('kpi-auto').textContent = s.autoDestroy;
+
+    renderCharts(data);
+    renderTable(data.recent);
+  } catch (e) {
+    document.getElementById('loading').innerHTML = `<div class="error">❌ ${e.message}</div>`;
+  }
+}
+
+load();
+setInterval(load, 60000);
+
+// 响应式 resize
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.chart').forEach(el => {
+    const inst = echarts.getInstanceByDom(el);
+    if (inst) inst.resize();
+  });
+});
+</script>
+</body>
+</html>
