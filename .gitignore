@@ -17,6 +17,10 @@ Thumbs.db
 
 # 日志
 *.log
+logs/
+
+# pm2
+ecosystem.config.js.bak
 
 # 构建
 dist/
