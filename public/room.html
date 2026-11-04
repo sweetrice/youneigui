@@ -127,8 +127,13 @@
       startCountdown();
 
       // 再加入会话（更新成员列表）
-      await api.post(`/rooms/${roomId}/join`);
-      renderMemberList();
+      const joinRes = await api.post(`/rooms/${roomId}/join`);
+      // 重要：join 接口返回的 room 里已经包含最新成员列表（包括自己），
+      // 必须更新 state.room，否则 renderMemberList() 用的还是 join 前的旧数据
+      if (joinRes && joinRes.ok && joinRes.room) {
+        state.room = joinRes.room;
+        renderMemberList();
+      }
 
       // 连接 WebSocket
       connectWS();
