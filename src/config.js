@@ -51,16 +51,6 @@ module.exports = {
     callbackURL: `${process.env.APP_URL || 'http://localhost:3000'}/auth/github/callback`,
   },
 
-  // ========== Ampayer 微信扫码登录 ==========
-  // 在 ampayer 后台申请 site_token，绑定到你的公网域名
-  // 回调地址必须和申请时填的一致：${APP_URL}/auth/ampayer/callback
-  ampayer: {
-    siteToken: process.env.AMPAYER_SITE_TOKEN || '',
-    initURL: 'https://api.ampayer.cn/apis/wxauth/init/',
-    siteURL: 'https://api.ampayer.cn/apis/wxauth/site/',
-    callbackURL: `${process.env.APP_URL || 'http://localhost:3000'}/auth/ampayer/callback`,
-  },
-
   // 预设销毁时间（秒）
   destroyPresets: [
     { label: '30 分钟', seconds: 30 * 60 },

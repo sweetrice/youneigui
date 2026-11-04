@@ -24,7 +24,6 @@
       </p>
       <div style="display:flex; gap:8px;">
         <a class="btn btn-secondary" href="/auth/github" style="flex:1; margin:0;">GitHub 登录</a>
-        <button class="btn btn-wechat" id="wxLoginBtn" style="flex:1; margin:0; display:none;">微信登录</button>
       </div>
     </div>
     <p class="muted center" style="margin-top:16px;">
@@ -85,48 +84,8 @@
 
 </div>
 
-<!-- 微信扫码登录模态框 -->
-<div id="wxLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(8px);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:linear-gradient(145deg,#1a1a2e 0%,#16213e 100%);padding:32px 28px;border-radius:20px;text-align:center;width:92vw;max-width:360px;box-shadow:0 25px 60px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.06);position:relative;">
-    <!-- 顶部装饰条 -->
-    <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:40px;height:3px;background:linear-gradient(90deg,#07c160,#10b981);border-radius:0 0 4px 4px;"></div>
-
-    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px;">
-      <span style="font-size:1.3rem;">📱</span>
-      <h3 style="color:#eee;margin:0;font-size:1.1rem;letter-spacing:0.5px;">微信扫码登录</h3>
-    </div>
-    <p id="wxTip" style="color:#888;margin:0 0 20px;font-size:0.82rem;">打开微信，扫描二维码授权登录</p>
-
-    <!-- 二维码容器：白边卡片 + 扫描动画 -->
-    <div style="position:relative;display:inline-block;padding:14px;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(7,193,96,0.15);">
-      <div id="wxQrBox" style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;color:#999;font-size:0.82rem;overflow:hidden;position:relative;"></div>
-      <!-- 扫描动画线 -->
-      <div id="wxScanLine" style="display:none;position:absolute;left:14px;right:14px;top:14px;height:2px;background:linear-gradient(90deg,transparent,#07c160,transparent);box-shadow:0 0 8px #07c160,0 0 16px #07c160;animation:wxScanMove 2s ease-in-out infinite;"></div>
-    </div>
-
-    <!-- 倒计时 -->
-    <div id="wxCountdown" style="margin-top:18px;color:#999;font-size:0.78rem;">⏳ 二维码将在 <span id="wxCountdownNum" style="color:#07c160;font-weight:600;">3:00</span> 后过期</div>
-
-    <!-- 按钮组 -->
-    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;">
-      <button id="wxRefreshBtn" onclick="showWxQR()" style="display:none;background:transparent;border:1px solid #333;color:#aaa;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:0.82rem;">🔄 刷新</button>
-      <button onclick="closeWxModal()" style="background:transparent;border:1px solid #333;color:#aaa;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:0.82rem;">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 扫描动画 keyframes -->
-<style>
-@keyframes wxScanMove {
-  0% { top: 14px; opacity: 1; }
-  50% { top: calc(100% - 14px); opacity: 1; }
-  100% { top: 14px; opacity: 1; }
-}
-</style>
-
 <script src="/js/i18n.js"></script>
 <script src="/js/app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
   async function init() {
     const user = await api.get('/auth/me');
@@ -148,132 +107,7 @@
     } else {
       document.getElementById('loginView').classList.remove('hidden');
       document.getElementById('homeView').classList.add('hidden');
-
-      // 检查 ampayer 是否可用，可用则显示微信登录按钮
-      try {
-        const r = await api.get('/auth/ampayer/init');
-        if (r.ok) {
-          const wxBtn = document.getElementById('wxLoginBtn');
-          wxBtn.style.display = 'block';
-          wxBtn.onclick = showWxQR;
-        }
-      } catch {
-        // ampayer 未配置，跳过
-      }
     }
-  }
-
-  let wxPollTimer = null;
-  let wxCountdownTimer = null;
-  const wxPOLL_TIMEOUT = 180; // 总超时 3 分钟
-
-  function fmtTime(sec) {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  async function showWxQR() {
-    // 微信内置浏览器：直接跳转 ampayer 授权页（H5 授权，无需扫码）
-    if (/MicroMessenger/i.test(navigator.userAgent)) {
-      window.location.href = '/auth/ampayer/start';
-      return;
-    }
-    // PC / 普通移动端：弹二维码 + 轮询授权状态 + 倒计时
-    const modal = document.getElementById('wxLoginModal');
-    const box = document.getElementById('wxQrBox');
-    const tip = document.getElementById('wxTip');
-    const countdownNum = document.getElementById('wxCountdownNum');
-    const scanLine = document.getElementById('wxScanLine');
-    const refreshBtn = document.getElementById('wxRefreshBtn');
-    const countdownBox = document.getElementById('wxCountdown');
-
-    // 清之前的定时器（如果点了"刷新"）
-    closeWxModal();
-
-    modal.style.display = 'flex';
-    box.innerHTML = '<span style="color:#999;font-size:0.82rem;">加载中...</span>';
-    tip.textContent = '打开微信，扫描二维码授权登录';
-    refreshBtn.style.display = 'none';
-    countdownBox.style.display = 'block';
-
-    try {
-      const r = await api.get('/auth/ampayer/init');
-      if (!r.ok) { box.innerHTML = '<span style="color:#e74c3c;font-size:0.82rem;">❌ 登录初始化失败</span>'; return; }
-      const loginToken = r.loginToken;
-      box.innerHTML = '';
-      new QRCode(box, {
-        text: r.authUrl,
-        width: 200, height: 200,
-        correctLevel: QRCode.CorrectLevel.M,
-      });
-
-      // 显示扫描动画线
-      scanLine.style.display = 'block';
-
-      // 启动倒计时
-      let remaining = wxPOLL_TIMEOUT;
-      countdownNum.textContent = fmtTime(remaining);
-      wxCountdownTimer = setInterval(() => {
-        remaining--;
-        if (remaining <= 0) {
-          clearInterval(wxCountdownTimer);
-          clearInterval(wxPollTimer);
-          wxCountdownTimer = null;
-          wxPollTimer = null;
-          scanLine.style.display = 'none';
-          tip.textContent = '⏰ 二维码已过期';
-          countdownNum.textContent = '0:00';
-          countdownBox.style.display = 'none';
-          refreshBtn.style.display = 'inline-block';
-          box.innerHTML = '<span style="color:#888;font-size:0.82rem;">二维码已过期<br>请刷新重试</span>';
-          return;
-        }
-        countdownNum.textContent = fmtTime(remaining);
-        if (remaining <= 30) countdownNum.style.color = '#e74c3c';
-        else if (remaining <= 60) countdownNum.style.color = '#f39c12';
-        else countdownNum.style.color = '#07c160';
-      }, 1000);
-
-      // 开始轮询
-      wxPollTimer = setInterval(async () => {
-        try {
-          const p = await api.get(`/auth/ampayer/poll?token=${loginToken}`);
-          if (p.status === 'expired') {
-            clearInterval(wxPollTimer); wxPollTimer = null;
-            clearInterval(wxCountdownTimer); wxCountdownTimer = null;
-            scanLine.style.display = 'none';
-            tip.textContent = '⏰ 二维码已过期';
-            countdownBox.style.display = 'none';
-            refreshBtn.style.display = 'inline-block';
-            return;
-          }
-          if (p.ok && p.status === 'authorized') {
-            clearInterval(wxPollTimer); wxPollTimer = null;
-            clearInterval(wxCountdownTimer); wxCountdownTimer = null;
-            scanLine.style.display = 'none';
-            tip.textContent = '✅ 授权成功，正在登录...';
-            // 消费 token + 在 PC 建 session
-            await api.post('/auth/ampayer/consume', { token: loginToken });
-            document.getElementById('wxLoginModal').style.display = 'none';
-            window.location.reload();
-          }
-        } catch (e) {
-          // 单次轮询失败忽略，下次继续
-        }
-      }, 2000);
-    } catch (e) {
-      box.innerHTML = '<span style="color:#e74c3c;font-size:0.82rem;">❌ 网络错误，请重试</span>';
-      scanLine.style.display = 'none';
-    }
-  }
-
-  // 关闭二维码时停止所有定时器
-  function closeWxModal() {
-    if (wxPollTimer) { clearInterval(wxPollTimer); wxPollTimer = null; }
-    if (wxCountdownTimer) { clearInterval(wxCountdownTimer); wxCountdownTimer = null; }
-    document.getElementById('wxLoginModal').style.display = 'none';
-    document.getElementById('wxScanLine').style.display = 'none';
   }
 
   async function joinByCode(code, resultEl) {

@@ -25,3 +25,4 @@ ecosystem.config.js.bak
 # 构建
 dist/
 build/
+release/

@@ -83,8 +83,6 @@ h1 {
 .btn-primary { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 .btn-secondary { background: #2d3748; }
 .btn-secondary:hover { background: #3d4758; }
-.btn-wechat { background: #07c160; color: #fff; border: none; }
-.btn-wechat:hover { background: #06ae56; }
 .btn-danger { background: #e74c3c; }
 .btn-danger:hover { background: #c0392b; }
 .btn-outline {

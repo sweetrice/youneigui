@@ -68,7 +68,7 @@ function start() {
   // ========== OAuth 路由 ==========
   const oauthRouter = require('./oauth');
   app.use('/auth', oauthRouter);
-  // ampayer 后台可能误配旧路径 /api/auth/wxcallback，兜底重定向
+  // 路径别名兜底
   app.use('/api/auth', oauthRouter);
 
   // ========== API 路由 ==========
@@ -185,7 +185,6 @@ function start() {
       console.log(`   局域网:  http://${lanIp}:${config.port}`);
       console.log(`   Redis: ${redisReady ? '✅ connected' : '❌ not available (using MemoryStore)'}`);
       console.log(`   GitHub OAuth: ${config.github.clientId ? '✅' : '❌ not configured'}`);
-      console.log(`   Ampayer 微信: ${config.ampayer.siteToken ? '✅' : '❌ not configured'}`);
       console.log(`   WebSocket: ${redisReady ? '✅' : '❌ disabled (needs Redis)'}\n`);
     });
   };
