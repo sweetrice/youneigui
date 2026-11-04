@@ -227,9 +227,17 @@ async function handleCallback(req, res) {
   }
 
   // ========== 关键分支 ==========
-  // 如果 callback 带了 login_token → PC 扫码流程 → 写 Redis 让 PC poll
-  // 如果没带 login_token → 微信 H5 流程 → 直接 req.login() 建当前浏览器 session
+  // 不靠 login_token 是否存在来判断（ampayer 总会把它原样带回来）
+  // 而是靠 Redis 里有没有这条 key：只有 /init 写了 pending key → PC 扫码流程
+  // /start 不写 Redis → 没有 key → 微信 H5 流程 → 直接 req.login()
+  let isPC = false;
   if (login_token) {
+    const raw = await redis.get(pollKey(login_token));
+    isPC = !!raw; // init 写了 key = true；start 没写 = null = false
+    console.log(`[ampayer/callback] login_token=${login_token} redis=${raw ? 'exists(' + JSON.parse(raw).status + ')' : 'missing'} → ${isPC ? 'PC扫码' : 'H5'}`);
+  }
+
+  if (isPC) {
     // PC 扫码：写 Redis 让 PC 端 poll 到 user 信息
     try {
       await redis.set(
@@ -254,7 +262,7 @@ h2{margin:0 0 8px;font-size:1.2rem}
 p{margin:0;color:#888;font-size:0.9rem;line-height:1.6}
 </style></head><body><div class="box"><div class="icon">✅</div><h2>授权成功</h2><p>请回到电脑浏览器<br>确认登录状态</p></div></body></html>`);
   } else {
-    // 微信 H5：同浏览器，直接建 session
+    // 微信 H5：同浏览器，直接建 session（可能是 /start 过来的，也可能不带 login_token）
     req.login(user, (loginErr) => {
       if (loginErr) {
         console.error('[ampayer/callback] req.login FAILED:', loginErr);
