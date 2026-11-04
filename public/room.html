@@ -83,8 +83,24 @@
     timerInterval: null,
   };
 
+  // 全局：前端时间偏移量（服务器时间 - 浏览器时间），用于修正服务器时间漂移
+  let timeOffset = 0;
+
+  async function calibrateTime() {
+    try {
+      const h = await api.get('/health');
+      if (h && h.serverTime) {
+        timeOffset = h.serverTime - Date.now();
+        console.log('[time] calibrated offset=' + timeOffset + 'ms (' + (timeOffset/1000).toFixed(1) + 's)');
+      }
+    } catch {}
+  }
+
   // ============ 初始化 ============
   async function init() {
+    // 先校准时间
+    await calibrateTime();
+
     const user = await api.get('/auth/me');
     if (!user || !user.id) { window.location.href = '/'; return; }
     state.user = user;
@@ -171,7 +187,8 @@
         el.textContent = '--:--';
         return;
       }
-      const now = Date.now();
+      // 用服务器校准后的"当前时间"算差值，两边同口径
+      const now = Date.now() + timeOffset;
       const remain = Math.max(0, state.room.destroyAt - now);
       const totalSec = Math.floor(remain / 1000);
       const d = Math.floor(totalSec / 86400);

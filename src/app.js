@@ -72,12 +72,13 @@ function start() {
   app.use('/api/auth', oauthRouter);
 
   // ========== API 路由 ==========
-  // 健康检查
+  // 健康检查 + 服务器时间校准（前端用来修正服务器时间漂移）
   app.get('/api/health', (req, res) => {
     res.json({
       ok: true,
       version: '0.1.0',
       redis: redisReady ? 'connected' : 'disconnected',
+      serverTime: Date.now(),
     });
   });
   app.use('/api/rooms', require('./room/routes'));
