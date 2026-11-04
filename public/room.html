@@ -158,9 +158,12 @@
 
     const tick = () => {
       if (state.destroyed) return;
+      if (!state.room || !state.room.destroyAt) {
+        el.textContent = '--:--';
+        return;
+      }
       const now = Date.now();
       const remain = Math.max(0, state.room.destroyAt - now);
-      if (remain <= 0) return;
 
       const totalSec = Math.floor(remain / 1000);
       const d = Math.floor(totalSec / 86400);
