@@ -88,36 +88,51 @@ function start() {
   app.get('/api/stats', async (req, res) => {
     if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
     try {
-      // 1. 活跃房间数
+      // 1. 活跃房间数 + 活跃房间的消息/成员数
       // 用 rawClient（不带 keyPrefix）+ SCAN，绕开 ioredis keyPrefix 在 keys()/scan() 上的 bug
       let activeRooms = 0;
+      let activeMessages = 0;
+      let activeMembers = 0;
       const fullPattern = `${config.redisPrefix}room:meta:*`;
       let cursor = '0';
       do {
         const [nextCursor, keys] = await rawClient.scan(cursor, 'MATCH', fullPattern, 'COUNT', 100);
         cursor = nextCursor;
         for (const fullKey of keys) {
-          // fullKey 是完整的（yg:room:meta:xxx），用带 prefix 的 redis.hget 要 slice 掉 prefix
+          // fullKey 是完整的（yg:room:meta:xxx），用带 prefix 的 redis 操作要 slice 掉 prefix
           const rawKey = fullKey.slice(config.redisPrefix.length);
           const status = await redis.hget(rawKey, 'status');
-          if (status === 'active') activeRooms++;
+          if (status === 'active') {
+            activeRooms++;
+            const roomId = rawKey.replace(/^room:meta:/, '');
+            // 活跃房间的消息数（List length）和成员数（Set scard）
+            const [msgLen, memLen] = await Promise.all([
+              redis.llen(`room:${roomId}:messages`),
+              redis.scard(`room:${roomId}:members`),
+            ]);
+            activeMessages += msgLen || 0;
+            activeMembers += memLen || 0;
+          }
         }
       } while (cursor !== '0');
 
-      // 2. 审计日志汇总
+      // 2. 审计日志汇总（只记录已销毁房间）
       const rawLogs = await redis.lrange('audit:rooms', 0, -1);
       const logs = rawLogs.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+
+      const totalMessagesFromLogs = logs.reduce((s, l) => s + (l.message_count || 0), 0);
+      const totalMembersFromLogs = logs.reduce((s, l) => s + (l.member_count || 0), 0);
 
       const summary = {
         totalRooms: logs.length + activeRooms,
         activeRooms,
         destroyedRooms: logs.length,
-        totalMessages: logs.reduce((s, l) => s + (l.message_count || 0), 0),
-        totalMembers: logs.reduce((s, l) => s + (l.member_count || 0), 0),
+        totalMessages: totalMessagesFromLogs + activeMessages,
+        totalMembers: totalMembersFromLogs + activeMembers,
         manualDestroy: logs.filter(l => l.destroy_trigger === 'manual').length,
         autoDestroy: logs.filter(l => l.destroy_trigger === 'auto').length,
-        avgMembersPerRoom: logs.length ? +(logs.reduce((s, l) => s + (l.member_count || 0), 0) / logs.length).toFixed(1) : 0,
-        avgMessagesPerRoom: logs.length ? +(logs.reduce((s, l) => s + (l.message_count || 0), 0) / logs.length).toFixed(1) : 0,
+        avgMembersPerRoom: logs.length ? +((totalMembersFromLogs) / logs.length).toFixed(1) : (activeRooms ? +(activeMembers / activeRooms).toFixed(1) : 0),
+        avgMessagesPerRoom: logs.length ? +((totalMessagesFromLogs) / logs.length).toFixed(1) : (activeRooms ? +(activeMessages / activeRooms).toFixed(1) : 0),
       };
 
       // 3. 最近 20 条明细
