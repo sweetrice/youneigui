@@ -89,11 +89,12 @@ function start() {
     if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
     try {
       // 1. 活跃房间数
-      // ioredis keys() 返回带 prefix 的 key，后续操作也要 slice 掉 prefix 避免二次拼接
+      // 用 SCAN 替代 KEYS：KEYS 是阻塞命令，且在 ioredis keyPrefix 下有已知坑
+      // scan() 返回带 prefix 的 key，后续 hget 要 slice 掉 prefix 避免二次拼接
       let activeRooms = 0;
       const pre = config.redisPrefix;
-      const allKeys = await redis.keys('room:meta:*');
-      for (const k of allKeys) {
+      // scan 迭代器，pattern 不用手动加 prefix（ioredis 自动处理）
+      for await (const k of redis.scanIterator({ match: 'room:meta:*', count: 100 })) {
         const rawKey = k.startsWith(pre) ? k.slice(pre.length) : k;
         const status = await redis.hget(rawKey, 'status');
         if (status === 'active') activeRooms++;
