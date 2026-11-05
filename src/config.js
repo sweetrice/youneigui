@@ -43,7 +43,7 @@ module.exports = {
     db: parseInt(process.env.REDIS_DB || '0', 10),
   },
 
-  sessionSecret: process.env.SESSION_SECRET || 'dev-only-change-me',
+  sessionSecret: process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? (() => { console.error('[config] ❌ SESSION_SECRET must be set in production'); process.exit(1); })() : 'dev-only-change-me'),
 
   github: {
     clientId: process.env.GITHUB_CLIENT_ID || '',
@@ -74,4 +74,18 @@ module.exports = {
 
   // 登录 session 有效期（秒）
   sessionMaxAge: 7 * 24 * 60 * 60, // 7 天
+
+  // ========== 媒体文件存储（本地文件系统） ==========
+  // 不设 MEDIA_STORAGE_ROOT 则媒体上传功能不启用（后端路由关闭、前端按钮隐藏）
+  mediaStorageRoot: process.env.MEDIA_STORAGE_ROOT || '',
+
+  // ========== 消息防护 ==========
+  maxMessageLength: 2000,          // 单条文字最多 2000 字
+  maxMessagesPerRoom: 2000,        // 每房间最多保留 2000 条（超出自动 LTRIM 最旧的）
+  floodMaxPerWindow: 10,           // 每个用户每窗口最多发几条
+  floodWindowSeconds: 3,           // 窗口大小（秒），即 3 秒内超 10 条算刷屏
+
+  // 单房间媒体总大小上限（字节）
+  // 50MB 默认，足够临时聊天；设 0 表示不限制
+  mediaMaxRoomBytes: parseInt(process.env.MEDIA_MAX_ROOM_BYTES || String(50 * 1024 * 1024), 10),
 };

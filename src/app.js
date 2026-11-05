@@ -7,6 +7,8 @@ const passport = require('passport');
 const path = require('path');
 const config = require('./config');
 const { client: redis, rawClient } = require('./redis');
+const multer = require('multer');
+const mediaStore = require('./media/store');
 
 // Redis 连接状态标记
 let redisReady = false;
@@ -20,6 +22,10 @@ Promise.race([
   if (redisReady) {
     console.log('[app] Redis connected, using connect-redis session store');
   } else {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[app] ❌ Redis is required in production. Aborting.');
+      process.exit(1);
+    }
     console.warn('[app] ⚠️  Redis not available, falling back to MemoryStore (dev mode only!)');
   }
   start();
@@ -60,6 +66,66 @@ function start() {
   // 静态文件
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
+  // ========== 媒体文件静态目录（仅启用了存储时挂载） ==========
+  const mediaEnabled = !!config.mediaStorageRoot;
+  if (mediaEnabled) {
+    const mediaCache = (req, res, next) => {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      next();
+    };
+    app.use('/media', mediaCache, express.static(config.mediaStorageRoot, {
+      acceptRanges: true,
+      dotfiles: 'deny',
+      fallthrough: false,
+      setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      },
+    }));
+    console.log(`[media] storage enabled at ${config.mediaStorageRoot}`);
+  } else {
+    console.warn('[media] ⚠️  MEDIA_STORAGE_ROOT not set, media upload disabled');
+  }
+
+  // ========== 媒体上传接口 ==========
+  // 仅当配置了 MEDIA_STORAGE_ROOT 时才挂载
+  if (mediaEnabled) {
+    const tmpDir = path.join(require('os').tmpdir(), 'youneigui-upload');
+    const uploadHandler = multer({
+      dest: tmpDir,
+      limits: { fileSize: 100 * 1024 * 1024, files: 1 },
+      fileFilter: (req, file, cb) => {
+        if (mediaStore.MIME_LIMITS[file.mimetype]) cb(null, true);
+        else cb(new Error('invalid_mime'));
+      },
+    });
+
+    app.post('/api/media/upload', uploadHandler.single('file'), async (req, res) => {
+      console.log(`[media/upload] file=${req.file ? req.file.originalname : 'none'}`);
+      if (!redisReady) return res.status(503).json({ ok: false, error: 'redis_unavailable' });
+      if (!req.user) return res.status(401).json({ ok: false, error: 'not_logged_in' });
+      const roomId = req.body.roomId;
+      if (!roomId) return res.status(400).json({ ok: false, error: 'missing_roomId' });
+      if (!req.file) return res.status(400).json({ ok: false, error: 'no_file' });
+      try {
+        const status = await redis.hget(`room:meta:${roomId}`, 'status');
+        if (status !== 'active') {
+          try { require('fs').unlinkSync(req.file.path); } catch {}
+          return res.status(410).json({ ok: false, error: 'room_destroyed' });
+        }
+        const result = await mediaStore.upload(roomId, req.file);
+        res.json({ ok: true, ...result });
+      } catch (e) {
+        console.error('[media/upload] error:', e.message);
+        if (e.message === 'room_quota_exceeded') return res.status(413).json({ ok: false, error: 'quota_exceeded', detail: e.detail });
+        if (e.message === 'too_large') return res.status(413).json({ ok: false, error: 'too_large', detail: e.detail });
+        if (e.message === 'type_not_allowed') return res.status(415).json({ ok: false, error: 'type_not_allowed', detail: e.detail });
+        res.status(500).json({ ok: false, error: 'upload_failed' });
+      }
+    });
+  }
+
+  // 全局请求日志（仅 /api 路径）
+
   // 短链接 → join.html
   app.get('/join/:code', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'join.html'));
@@ -68,8 +134,6 @@ function start() {
   // ========== OAuth 路由 ==========
   const oauthRouter = require('./oauth');
   app.use('/auth', oauthRouter);
-  // 路径别名兜底
-  app.use('/api/auth', oauthRouter);
 
   // ========== API 路由 ==========
   // 健康检查 + 服务器时间校准（前端用来修正服务器时间漂移）
@@ -78,6 +142,7 @@ function start() {
       ok: true,
       version: '0.1.0',
       redis: redisReady ? 'connected' : 'disconnected',
+      mediaEnabled: mediaEnabled,
       serverTime: Date.now(),
     });
   });

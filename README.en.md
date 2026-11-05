@@ -30,7 +30,6 @@ YouNeiGui gives you a negotiation window:
 - **Zero social residue**: No friend system, no chat history feed, no contact list stored anywhere.
 - **Human-only**: OAuth login keeps bots out, but we don't reuse your social identity across rooms.
 - **Markdown export**: Grab the transcript before destroy. After destroy — gone forever.
-- **Publicly verifiable**: Anyone can open `/stats.html` to watch the live counter and see that data really is being cleaned up.
 
 ---
 
@@ -155,19 +154,6 @@ youneigui/
 ├── .env.example
 └── LICENSE
 ```
-
-## 🔍 Verifiable by the public
-
-"Burn after chat" is not just marketing copy. We expose a public **live stats** page so anyone can watch the counters tick and confirm that data really is being cleaned up:
-
-- Active rooms right now / total destroyed rooms
-- Total sessions, total messages, total participant joins
-- Manual destroy vs TTL auto-destroy ratio
-- Redacted details of recently destroyed sessions
-
-👉 Once deployed, visit `/stats.html`
-
-![Live stats](./docs/youneigui_stats.jpeg)
 
 ## Security boundary
 

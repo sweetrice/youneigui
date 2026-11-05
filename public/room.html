@@ -1,10 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0">
   <meta name="theme-color" content="#0f0f1a">
   <title>有内鬼 · 聊天内容自动销毁，不留痕</title>
+<link rel="icon" type="image/svg+xml" href="/img/logo.svg">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -53,8 +54,23 @@
     <div class="chat-area" id="chatArea"></div>
 
     <div class="input-area" style="padding-bottom: env(safe-area-inset-bottom, 0);">
-      <textarea id="msgInput" rows="1" placeholder="说点什么..." maxlength="2000"></textarea>
-      <button class="btn btn-primary send-btn" id="sendBtn">发送</button>
+      <div class="input-row">
+        <textarea id="msgInput" rows="1" placeholder="说点什么..." maxlength="2000"></textarea>
+        <button type="button" class="tool-icon" id="uploadBtn" title="文件" onclick="document.getElementById('fileInput').click()">📁</button>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,audio/mpeg,audio/wav,video/mp4,.txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.json,.csv,.zip" hidden>
+        <button class="btn btn-primary send-btn" id="sendBtn">发送</button>
+      </div>
+    </div>
+
+    <!-- 上传进度条 -->
+    <div id="uploadBar" class="upload-bar hidden">
+      <div id="uploadBarFill" class="upload-bar-fill" style="width:0%"></div>
+      <span id="uploadBarText" class="upload-bar-text">0%</span>
+    </div>
+
+    <!-- 图片 Lightbox -->
+    <div id="lightbox" class="lightbox hidden" onclick="document.getElementById('lightbox').classList.add('hidden')">
+      <img id="lightboxImg" src="">
     </div>
   </div>
 
@@ -104,6 +120,15 @@
   async function init() {
     // 先校准时间
     await calibrateTime();
+
+    // 检查媒体功能是否启用
+    try {
+      const h = await api.get('/health');
+      if (h && h.mediaEnabled === false) {
+        const btn = document.getElementById('uploadBtn');
+        if (btn) btn.style.display = 'none';
+      }
+    } catch { /* ignore */ }
 
     const user = await api.get('/auth/me');
     if (!user || !user.id) { window.location.href = '/'; return; }
@@ -264,18 +289,75 @@
       return;
     }
 
+    // 已撤回：显示占位符，不再渲染媒体气泡
+    if (msg.type === 'revoked') {
+      const div = document.createElement('div');
+      div.className = 'msg-revoked';
+      div.textContent = '— 一条消息已被撤回 —';
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+      return;
+    }
+
     const div = document.createElement('div');
     div.className = `msg ${msg.sender_id === state.user.id ? 'own' : ''}`;
+    div.dataset.msgId = msg.id;
+
+    // 媒体消息：image / audio / video
+    let bubbleContent = '';
+    if (msg.type === 'image') {
+      bubbleContent = `<img class="media-img" src="${msg.public_url}" loading="lazy" onclick="document.getElementById('lightboxImg').src='${msg.public_url}';document.getElementById('lightbox').classList.remove('hidden')">`;
+    } else if (msg.type === 'audio') {
+      bubbleContent = `<audio class="media-audio" src="${msg.public_url}" controls></audio>`;
+    } else if (msg.type === 'video') {
+      bubbleContent = `<video class="media-video" src="${msg.public_url}" controls preload="metadata"></video>`;
+    } else if (msg.type === 'document') {
+      const fileName = msg.original_name || (msg.file_key || '').split('/').pop() || '文档';
+      const ext = fileName.split('.').pop() || '';
+      bubbleContent = `
+        <a class="media-doc" href="${msg.public_url}" download target="_blank">
+          <div class="doc-icon">📄</div>
+          <div class="doc-info">
+            <div class="doc-name">${fileName}</div>
+            <div class="doc-meta">${ext.toUpperCase()} · ${formatSize(msg.size || 0)}</div>
+          </div>
+          <div class="doc-download">⬇</div>
+        </a>`;
+    } else {
+      // text（旧消息没有 type 字段也当 text）
+      bubbleContent = ''; // 后面 textContent 设置
+    }
+
+    // 自己发的消息显示撤回按钮
+    const revokeBtn = msg.sender_id === state.user.id
+      ? `<button class="revoke-btn" onclick="revokeMsg('${msg.id}')" title="撤回">撤回</button>`
+      : '';
+
     div.innerHTML = `
       <img class="avatar" src="${msg.sender_avatar || '/img/default-avatar.svg'}" alt="">
       <div>
-        <div class="bubble"></div>
+        <div class="bubble-wrap">
+          <div class="bubble">${bubbleContent}</div>
+          ${revokeBtn}
+        </div>
         <div class="meta">${msg.sender_nickname} · ${new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}</div>
       </div>
     `;
-    div.querySelector('.bubble').textContent = msg.content || msg.message || '';
+
+    // text 消息用 textContent（防 XSS），media 消息已经用 innerHTML 安全渲染
+    if (msg.type !== 'image' && msg.type !== 'audio' && msg.type !== 'video' && msg.type !== 'document') {
+      div.querySelector('.bubble').textContent = msg.content || msg.message || '';
+    }
+
     area.appendChild(div);
     area.scrollTop = area.scrollHeight;
+  }
+
+  // ============ 撤回消息 ============
+  function revokeMsg(msgId) {
+    if (!state.ws || state.ws.readyState !== 1) return;
+    if (!confirm('确定撤回这条消息吗？所有人都将看不到。')) return;
+    state.ws.send(JSON.stringify({ type: 'revoke', msgId }));
   }
 
   function showDestroyed() {
@@ -377,8 +459,23 @@
         renderMsg({ type: 'reminder', level: 'danger', message: data.message });
         break;
 
+      case 'msg_revoked': {
+        // 找到那条消息的 DOM，替换成撤回占位
+        const old = document.querySelector(`.msg[data-msg-id="${data.msgId}"]`);
+        if (old) {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'msg-revoked';
+          placeholder.textContent = '— 一条消息已被撤回 —';
+          old.replaceWith(placeholder);
+        }
+        break;
+      }
+
       case 'error':
         if (data.error === 'room_destroyed') showDestroyed();
+        else if (data.error === 'flood_detected') {
+          renderMsg({ type: 'reminder', level: 'warn', message: '⚠️ ' + (data.detail || '发送过快，请稍后再试') });
+        }
         break;
     }
   }
@@ -400,6 +497,116 @@
 
     input.value = '';
     input.style.height = 'auto';
+  }
+
+  /**
+   * 上传媒体文件 → POST /api/media/upload → 拿返回值 → 发 WS chat 消息
+   */
+  async function uploadMedia(file) {
+    if (!state.connected || !state.ws) {
+      alert('WebSocket 未连接，无法上传媒体。请刷新页面重试。');
+      return;
+    }
+    if (state.destroyed) return;
+
+    // 根据 MIME 推断 type
+    const mime = file.type;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const docExts = ['txt','md','pdf','doc','docx','xls','xlsx','ppt','pptx','json','csv','zip'];
+    let mediaType = null;
+    if (mime.startsWith('image/')) mediaType = 'image';
+    else if (mime.startsWith('audio/')) mediaType = 'audio';
+    else if (mime.startsWith('video/')) mediaType = 'video';
+    else if (docExts.includes(ext)) mediaType = 'document';
+    if (!mediaType) { alert('不支持的文件类型: ' + mime + (ext ? ' .' + ext : '')); return; }
+
+    // 单文件大小检查
+    const maxPerType = { image: 5 * 1024 * 1024, audio: 20 * 1024 * 1024, video: 50 * 1024 * 1024, document: 20 * 1024 * 1024 };
+    const typeLabel = { image: '图片', audio: '音频', video: '视频', document: '文档' }[mediaType];
+    if (file.size > maxPerType[mediaType]) {
+      alert(`${typeLabel}文件过大（最大 ${(maxPerType[mediaType]/1024/1024).toFixed(0)}MB）`);
+      return;
+    }
+
+    // 显示进度条
+    const bar = document.getElementById('uploadBar');
+    const fill = document.getElementById('uploadBarFill');
+    const text = document.getElementById('uploadBarText');
+    bar.classList.remove('hidden');
+    fill.style.width = '0%';
+    text.textContent = '0%';
+    let processing = false;
+
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const fd = new FormData();
+        fd.append('roomId', state.roomId);
+        fd.append('file', file);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/media/upload');
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round(e.loaded / e.total * 100);
+            fill.style.width = pct + '%';
+            if (pct < 100) {
+              text.textContent = `${pct}%（上传中）`;
+            } else if (!processing) {
+              processing = true;
+              // 100% 后：视频提示转码中，非视频直接显示完成等返回
+              if (mediaType === 'video') {
+                text.textContent = '🔄 上传完成，视频处理中...';
+                bar.classList.add('processing');  // 变绿色 + 呼吸动画
+              } else {
+                text.textContent = '100%';
+              }
+            }
+          }
+        };
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText); } catch {}
+          resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, data });
+        };
+        xhr.onerror = () => reject(new Error('network_error'));
+        xhr.send(fd);
+      });
+
+      if (!result.ok) {
+        const body = result.data;
+        const s = result.status;
+        if (s === 410) alert('会话已结束，无法上传');
+        else if (body.error === 'room_quota_exceeded') alert('⚠️ ' + (body.detail || '房间媒体配额已满'));
+        else if (body.error === 'quota_exceeded') alert('⚠️ ' + (body.detail || '房间媒体配额已满'));
+        else if (body.error === 'too_large') alert('⚠️ ' + (body.detail || '文件过大'));
+        else if (body.error === 'type_not_allowed') alert('⚠️ ' + (body.detail || '不支持的文件类型'));
+        else alert('⚠️ 上传失败: ' + (body.detail || s));
+        return;
+      }
+
+      const r = result.data;
+      if (!r.ok) throw new Error('upload_failed');
+
+      // 上传成功 → 发 WS chat 消息（携带 media 元数据）
+      state.ws.send(JSON.stringify({
+        type: 'chat',
+        media: {
+          type: mediaType,
+          fileKey: r.fileKey,
+          publicUrl: r.publicUrl,
+          mime: r.mime,
+          size: r.size,
+          originalName: r.originalName || file.name,
+        },
+      }));
+    } catch (e) {
+      console.error('[media] upload error:', e.message);
+      alert('上传失败，请重试');
+    } finally {
+      // 隐藏进度条 + 清理 processing 状态
+      bar.classList.remove('processing');
+      setTimeout(() => bar.classList.add('hidden'), 300);
+    }
   }
 
   // ============ 结束会话 ============
@@ -443,6 +650,25 @@
     });
     document.getElementById('sendBtn').onclick = sendMessage;
 
+    // 综合文件上传（飞书风格：一个 📁 按钮接受所有类型）
+    const fileInput = document.getElementById('fileInput');
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; // 允许重复选同一个文件
+      // 自动识别类型（和 uploadMedia 内部一致）
+      const mime = file.type;
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const docExts = ['txt','md','pdf','doc','docx','xls','xlsx','ppt','pptx','json','csv','zip'];
+      let mediaType = null;
+      if (mime.startsWith('image/')) mediaType = 'image';
+      else if (mime.startsWith('audio/')) mediaType = 'audio';
+      else if (mime.startsWith('video/')) mediaType = 'video';
+      else if (docExts.includes(ext)) mediaType = 'document';
+      if (!mediaType) { alert('不支持的文件类型'); return; }
+      await uploadMedia(file);
+    });
+
     // 离开时发送退出事件
     window.addEventListener('beforeunload', async () => {
       if (!state.destroyed && state.roomId) {
@@ -452,6 +678,13 @@
   });
 
   // ============ 工具 ============
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
+  }
+
   function getCookie(name) {
     const m = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/[-[\]/\\^$*+?.()|{}]/g, '\\$&')}=([^;]*)`));
     return m ? decodeURIComponent(m[1]) : '';

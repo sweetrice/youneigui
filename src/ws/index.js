@@ -90,6 +90,10 @@ function createWebSocketServer(http, redis) {
             await handleChat(ws, roomId, data);
             break;
 
+          case 'revoke':
+            await handleRevoke(ws, roomId, data);
+            break;
+
           case 'pong':
             break; // 忽略
 
@@ -137,19 +141,63 @@ function createWebSocketServer(http, redis) {
 async function handleChat(ws, roomId, data) {
   if (!ws.userId) return; // 还没 hello
   try {
-    const msg = await room.sendMessage(roomId, {
-      id: ws.userId,
-      nickname: ws.nickname,
-      avatar: ws.avatar,
-    }, data.content);
+    // 支持 text 和 media 消息
+    let msg;
+    if (data.media && ['image', 'audio', 'video', 'document'].includes(data.media.type)) {
+      msg = await room.sendMessage(roomId, {
+        id: ws.userId,
+        nickname: ws.nickname,
+        avatar: ws.avatar,
+      }, '', {
+        type: data.media.type,
+        fileKey: data.media.fileKey,
+        publicUrl: data.media.publicUrl,
+        mime: data.media.mime,
+        size: data.media.size,
+        originalName: data.media.originalName || '',
+      });
+    } else {
+      msg = await room.sendMessage(roomId, {
+        id: ws.userId,
+        nickname: ws.nickname,
+        avatar: ws.avatar,
+      }, data.content);
+    }
     broadcast(roomId, { type: 'chat', message: msg });
   } catch (e) {
     if (e.message === 'room_destroyed') {
       send(ws, { type: 'error', error: 'room_destroyed' });
     } else if (e.message === 'message_invalid') {
-      send(ws, { type: 'error', error: 'message_invalid', detail: '消息不能为空或超过 2000 字' });
+      send(ws, { type: 'error', error: 'message_invalid', detail: '消息无效（媒体文件可能已被清理或不属于本房间）' });
+    } else if (e.message === 'flood_detected') {
+      send(ws, { type: 'error', error: 'flood_detected', detail: e.detail || '发送过快，请稍后再试' });
     } else {
       console.error('[ws] chat error:', e.message);
+    }
+  }
+}
+
+async function handleRevoke(ws, roomId, data) {
+  const msgId = data.msgId;
+  if (!msgId) return;
+  try {
+    const result = await room.revokeMessage(roomId, {
+      id: ws.userId,
+      nickname: ws.nickname,
+    }, msgId);
+    broadcast(roomId, {
+      type: 'msg_revoked',
+      msgId,
+      revokedBy: ws.userId,
+      wasMedia: result.wasMedia,
+    });
+  } catch (e) {
+    if (e.message === 'message_not_found') {
+      send(ws, { type: 'error', error: 'message_not_found' });
+    } else if (e.message === 'not_your_message') {
+      send(ws, { type: 'error', error: 'not_your_message', detail: '只能撤回自己发的消息' });
+    } else {
+      console.error('[ws] revoke error:', e.message);
     }
   }
 }

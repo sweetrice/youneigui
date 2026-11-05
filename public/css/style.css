@@ -83,6 +83,8 @@ h1 {
 .btn-primary { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 .btn-secondary { background: #2d3748; }
 .btn-secondary:hover { background: #3d4758; }
+.btn-wechat { background: #07c160; color: #fff; border: none; }
+.btn-wechat:hover { background: #06ae56; }
 .btn-danger { background: #e74c3c; }
 .btn-danger:hover { background: #c0392b; }
 .btn-outline {
@@ -255,32 +257,124 @@ label { display: block; font-size: 0.85rem; color: #999; margin-bottom: 6px; }
 .sys-msg.danger { color: #e74c3c; font-weight: 500; }
 .sys-msg.warn { color: #f39c12; }
 
-/* 输入区 */
+/* 消息撤回 */
+.msg .bubble-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg.own .bubble-wrap {
+  flex-direction: row-reverse;
+}
+.revoke-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.msg:hover .revoke-btn { opacity: 1; }
+.revoke-btn:hover { color: #e74c3c; }
+.msg-revoked {
+  text-align: center;
+  color: #666;
+  font-size: 0.78rem;
+  padding: 6px 0;
+  font-style: italic;
+}
+
+/* ============ 输入区（飞书风格：单行圆角容器） ============ */
 .input-area {
+  padding: 10px 12px 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(26, 26, 46, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 单行输入容器 */
+.input-row {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  margin-top: 4px;
+  padding: 6px 8px 6px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  transition: border-color 0.2s, background 0.2s;
 }
-.input-area textarea {
+.input-row:focus-within {
+  border-color: #e74c3c;
+  background: rgba(255,255,255,0.08);
+}
+
+/* textarea 占满剩余空间 */
+.input-row textarea {
   flex: 1;
-  min-height: 52px;
-  max-height: 150px;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 120px;
   margin: 0;
-  padding: 12px 14px;
-  font-size: 16px;
+  padding: 6px 0;
+  font-size: 15px;
   line-height: 1.5;
   resize: none;
   box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: #e8e8e8;
 }
+.input-row textarea:focus {
+  outline: none;
+  border: none;
+}
+
+/* 功能图标组 */
+.tool-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-bottom: 2px;
+}
+.tool-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #aaa;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+  padding: 0;
+}
+.tool-icon:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+.tool-icon:active {
+  transform: scale(0.9);
+  background: rgba(255,255,255,0.2);
+}
+
+/* 发送按钮 */
 .input-area .send-btn {
-  width: auto;
-  padding: 0 20px;
-  height: 44px;
+  height: 32px;
+  padding: 0 18px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 8px;
   margin: 0;
-  font-size: 0.9rem;
   flex-shrink: 0;
 }
 
@@ -363,3 +457,139 @@ label { display: block; font-size: 0.85rem; color: #999; margin-bottom: 6px; }
 /* 链接 */
 a { color: #e74c3c; text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* ============ 上传进度条 ============ */
+/* 固定在视口顶部中间，不依赖父元素定位 */
+.upload-bar {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  height: 32px;
+  background: #1a1a2e;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  z-index: 1000;
+}
+.upload-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e74c3c, #ff6b6b);
+  transition: width 0.15s;
+  flex-shrink: 0;
+}
+/* 视频转码处理中：进度条变绿色 + 呼吸动画 */
+.upload-bar.processing .upload-bar-fill {
+  background: linear-gradient(90deg, #27ae60, #2ecc71);
+  animation: barBreathe 2s ease-in-out infinite;
+}
+@keyframes barBreathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.upload-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #fff;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  letter-spacing: 0.5px;
+}
+
+/* ============ 媒体气泡 ============ */
+.bubble .media-img {
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 10px;
+  display: block;
+  cursor: zoom-in;
+  object-fit: cover;
+}
+.bubble .media-video {
+  max-width: 260px;
+  max-height: 260px;
+  border-radius: 10px;
+  display: block;
+}
+.bubble .media-audio {
+  width: 220px;
+  height: 36px;
+  display: block;
+}
+/* 文档气泡 */
+.bubble .media-doc {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  min-width: 240px;
+  max-width: 100%;
+  transition: background 0.15s;
+}
+.bubble .media-doc:hover { background: rgba(255,255,255,0.12); }
+.bubble .media-doc .doc-icon { font-size: 1.8rem; flex-shrink: 0; margin-top: 2px; }
+.bubble .media-doc .doc-info { flex: 1; min-width: 0; }
+.bubble .media-doc .doc-name {
+  font-size: 0.85rem;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
+  color: #fff;
+}
+.bubble .media-doc .doc-meta {
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 2px;
+}
+.bubble .media-doc .doc-download {
+  font-size: 1rem;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+/* media 气泡内边距比文字气泡大一点 */
+.bubble:has(.media-img),
+.bubble:has(.media-video),
+.bubble:has(.media-audio),
+.bubble:has(.media-doc) {
+  padding: 4px;
+  background: transparent;
+}
+.msg.own .bubble:has(.media-img),
+.msg.own .bubble:has(.media-video),
+.msg.own .bubble:has(.media-audio),
+.msg.own .bubble:has(.media-doc) {
+  /* 自己发的媒体气泡不用背景 */
+  background: transparent;
+}
+
+/* ============ Lightbox ============ */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+  animation: fadeIn 0.15s;
+}
+.lightbox img {
+  max-width: 95vw;
+  max-height: 90vh;
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(255,255,255,0.1);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

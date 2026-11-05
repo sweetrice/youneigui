@@ -37,6 +37,12 @@ const I18N = {
   },
 };
 
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
 // GET /api/export/:roomId?lang=en — 导出 Markdown
 router.get('/:roomId', requireAuth, async (req, res) => {
   const lang = (req.query.lang === 'en' ? 'en' : 'zh');
@@ -81,7 +87,29 @@ router.get('/:roomId', requireAuth, async (req, res) => {
       } else {
         lines.push(`**${msg.sender_nickname}** @ ${time}：`);
       }
-      for (const line of msg.content.split('\n')) lines.push(`> ${line}`);
+
+      // 已撤回
+      if (msg.type === 'revoked') {
+        lines.push(`> ~~— ${lang === 'en' ? 'A message was revoked —' : '— 一条消息已被撤回 —'}~~`);
+        continue;
+      }
+
+      // media 消息：按类型渲染 Markdown
+      if (msg.type === 'image') {
+        lines.push(`> 🖼️ ![${msg.original_name || 'image'}](${msg.public_url})`);
+        if (msg.original_name) lines.push(`> \`${msg.original_name}\``);
+      } else if (msg.type === 'audio') {
+        lines.push(`> 🎵 **${lang === 'en' ? 'Audio' : '音频'}**: [${msg.original_name || 'audio'}](${msg.public_url})  \`${msg.size ? formatSize(msg.size) : ''}\``);
+      } else if (msg.type === 'video') {
+        lines.push(`> 🎬 **${lang === 'en' ? 'Video' : '视频'}**: [${msg.original_name || 'video'}](${msg.public_url})  \`${msg.size ? formatSize(msg.size) : ''}\``);
+      } else if (msg.type === 'document') {
+        const displayName = msg.original_name || (msg.file_key || '').split('/').pop() || 'document';
+        lines.push(`> 📄 **${lang === 'en' ? 'Document' : '文档'}**: [${displayName}](${msg.public_url})  \`${msg.size ? formatSize(msg.size) : ''}\``);
+      } else {
+        // text / 旧消息
+        const content = msg.content || msg.message || '';
+        for (const line of content.split('\n')) lines.push(`> ${line}`);
+      }
     }
   }
 

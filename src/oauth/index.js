@@ -76,31 +76,36 @@ h1{font-size:1.5rem;margin-bottom:0.5rem}
 <h1>有内鬼 🎬</h1>
 <p class="sub">登录以创建或加入临时会话，聊完即焚，不沉淀任何社交关系</p>
 ${error ? '<div class="err">❌ 登录失败，请重试</div>' : ''}
-${config.github.clientId ? '<a class="btn btn-github" href="/auth/github">GitHub 登录</a>' : ''}
-<a class="btn btn-secondary" href="/auth/mock?name=测试用户">🧪 Mock 登录（开发）</a>
+<div style="display:flex;gap:8px;width:260px;margin:10px 0">
+${config.github.clientId ? '<a class="btn btn-github" href="/auth/github" style="flex:1;margin:0">GitHub 登录</a>' : ''}
+</div>
+${process.env.NODE_ENV !== 'production' ? '<a class="btn btn-secondary" href="/auth/mock?name=测试用户">🧪 Mock 登录（开发）</a>' : ''}
 ${!config.github.clientId ? '<p style="color:#888">OAuth 尚未配置，请联系管理员</p>' : ''}
 <p class="note">我们仅存储你的昵称和头像用于会话内展示，销毁后立即清除</p>
 </body></html>`);
 });
 
-// ========== 开发模式 Mock 登录 ==========
-router.get('/mock', (req, res) => {
-  const name = (req.query.name || 'Mock 用户').toString();
-  const user = {
-    id: `mock_${Date.now()}`,
-    nickname: name,
-    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
-    oauthProvider: 'mock',
-  };
-  req.login(user, (err) => {
-    if (err) { console.error('[oauth/mock] login failed:', err); return res.redirect('/auth/login?error=mock_failed'); }
-    console.log(`[oauth/mock] logged in as ${user.id} (${user.nickname})`);
-    req.session.save((saveErr) => {
-      if (saveErr) console.error('[oauth/mock] session save failed:', saveErr);
-      res.redirect('/create.html');
+// ========== Mock 登录（仅开发环境） ==========
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/mock', (req, res) => {
+    const name = (req.query.name || 'Mock 用户').toString();
+    const user = {
+      id: `mock_${Date.now()}`,
+      nickname: name,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+      oauthProvider: 'mock',
+    };
+    req.login(user, (err) => {
+      if (err) { console.error('[oauth/mock] login failed:', err); return res.redirect('/auth/login?error=mock_failed'); }
+      console.log(`[oauth/mock] logged in as ${user.id} (${user.nickname})`);
+      req.session.save((saveErr) => {
+        if (saveErr) console.error('[oauth/mock] session save failed:', saveErr);
+        res.redirect('/create.html');
+      });
     });
   });
-});
+  console.log('[oauth] Mock login enabled (dev mode)');
+}
 
 // GitHub — 进入授权
 router.get('/github', (req, res, next) => {

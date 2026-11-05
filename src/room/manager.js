@@ -209,13 +209,49 @@ async function leaveRoom(roomId, userId) {
 
 /**
  * 发送消息（存 Redis + 返回完整消息对象）
+ * @param {string} roomId
+ * @param {object} user { id, nickname, avatar }
+ * @param {string} content 文字内容（type=text 时）
+ * @param {object} [opts] 媒体消息选项
+ * @param {'text'|'image'|'audio'|'video'|'document'} [opts.type='text']
+ * @param {string} [opts.fileKey]   内部存储 key（清理用）
+ * @param {string} [opts.publicUrl] 前端访问 URL（展示用）
+ * @param {string} [opts.mime]
+ * @param {number} [opts.size]
  */
-async function sendMessage(roomId, user, content) {
+async function sendMessage(roomId, user, content, opts) {
   const room = await getRoom(roomId);
   if (!room) throw new Error('room_not_found');
   if (room.status !== 'active') throw new Error('room_destroyed');
-  const text = (content || '').trim();
-  if (!text || text.length > 2000) throw new Error('message_invalid');
+
+  // 刷屏速率限制：每用户每房间 N 秒内最多 M 条
+  const floodKey = `flood:${roomId}:${user.id}`;
+  const floodCount = await client.incr(floodKey);
+  if (floodCount === 1) {
+    await client.expire(floodKey, config.floodWindowSeconds);
+  }
+  if (floodCount > config.floodMaxPerWindow) {
+    console.warn(`[message] flood blocked: user=${user.id} room=${roomId} count=${floodCount}`);
+    throw Object.assign(new Error('flood_detected'), { detail: `发送过快，请 ${config.floodWindowSeconds} 秒后再试` });
+  }
+
+  const type = (opts && opts.type) || 'text';
+
+  // 校验
+  if (type === 'text') {
+    const text = (content || '').trim();
+    if (!text || text.length > config.maxMessageLength) throw new Error('message_invalid');
+  } else if (['image', 'audio', 'video', 'document'].includes(type)) {
+    // media 类型：必须有 publicUrl 和 fileKey
+    if (!opts || !opts.publicUrl || !opts.fileKey) throw new Error('message_invalid');
+    // 验证 fileKey 归属本房间（防前端伪造其他房间的文件）
+    if (!opts.fileKey.startsWith(`rooms/${roomId}/`)) throw new Error('message_invalid');
+    // 验证文件确实存在于磁盘
+    const mediaStore = require('../media/store');
+    if (!mediaStore.fileExists(opts.fileKey)) throw new Error('message_invalid');
+  } else {
+    throw new Error('message_invalid');
+  }
 
   const now = Date.now();
   const msg = {
@@ -224,11 +260,27 @@ async function sendMessage(roomId, user, content) {
     sender_id: user.id,
     sender_nickname: user.nickname,
     sender_avatar: user.avatar || '',
-    content: text,
+    type,           // 'text' | 'image' | 'audio' | 'video' | 'document'
     timestamp: now,
   };
 
+  if (type === 'text') {
+    msg.content = content.trim();
+  } else {
+    // media 消息：只存元数据 + 小 JSON，不存实际文件
+    msg.content = '';           // media 消息 content 为空
+    msg.file_key = opts.fileKey;
+    msg.public_url = opts.publicUrl;
+    msg.mime = opts.mime || '';
+    msg.size = opts.size || 0;
+    if (opts.originalName) msg.original_name = opts.originalName;
+  }
+
   await client.rpush(`room:${roomId}:messages`, JSON.stringify(msg));
+  // 超长 List 自动裁剪（只保留最近 N 条，Redis 存满也不怕）
+  if (config.maxMessagesPerRoom > 0) {
+    await client.ltrim(`room:${roomId}:messages`, -config.maxMessagesPerRoom, -1);
+  }
   // 消息 TTL 跟随房间
   const meta = await client.hgetall(`room:meta:${roomId}`);
   if (meta.destroy_at) {
@@ -237,6 +289,61 @@ async function sendMessage(roomId, user, content) {
   }
 
   return msg;
+}
+
+/**
+ * 撤回自己发的消息（广播给所有人，所有人都看不到）
+ * @param {string} roomId
+ * @param {object} actor 操作人 user 对象（只能撤自己的）
+ * @param {string} msgId 消息 ID
+ * @returns {object} { ok: true, wasMedia, revokedMessage }
+ */
+async function revokeMessage(roomId, actor, msgId) {
+  // 1. 找到这条消息
+  const rawList = await client.lrange(`room:${roomId}:messages`, 0, -1);
+  let targetIndex = -1;
+  let targetMsg = null;
+  for (let i = 0; i < rawList.length; i++) {
+    try {
+      const m = JSON.parse(rawList[i]);
+      if (m.id === msgId) { targetIndex = i; targetMsg = m; break; }
+    } catch {}
+  }
+  if (targetIndex === -1) throw new Error('message_not_found');
+
+  // 2. 权限：只有发件人能撤回
+  if (targetMsg.sender_id !== actor.id) throw new Error('not_your_message');
+
+  // 3. 不能撤回已撤回的
+  if (targetMsg.type === 'revoked') throw new Error('message_already_revoked');
+
+  // 4. 用 LSET 原位替换（O(1)，不破坏 List 顺序）
+  const revokedMark = JSON.stringify({
+    type: 'revoked',
+    original_id: targetMsg.id,
+    revoked_by: actor.id,
+    revoked_at: Date.now(),
+  });
+  await client.lset(`room:${roomId}:messages`, targetIndex, revokedMark);
+
+  // 5. 如果是媒体消息，同步删磁盘文件 + 扣减计数器
+  let wasMedia = false;
+  if (['image', 'audio', 'video', 'document'].includes(targetMsg.type) && targetMsg.file_key) {
+    wasMedia = true;
+    const mediaStore = require('../media/store');
+    mediaStore.deleteFile(targetMsg.file_key);
+    // 扣减计数器
+    if (targetMsg.size) {
+      await client.decrby(`room:${roomId}:media_bytes`, targetMsg.size);
+      // 防止变负数（理论上不会，但计数器可能不同步）
+      await client.eval(
+        "local v = tonumber(redis.call('get', KEYS[1]) or '0'); if v < 0 then redis.call('set', KEYS[1], '0') end",
+        1, `room:${roomId}:media_bytes`
+      );
+    }
+  }
+
+  return { ok: true, wasMedia, revokedMessage: targetMsg };
 }
 
 /**
@@ -285,6 +392,14 @@ async function destroyRoom(roomId, actor, triggerType = 'manual') {
 
   // 数据永久销毁（消息、成员），元数据保留做审计
   await destroyRoomKeys(roomId);
+
+  // 清理媒体文件
+  try {
+    const mediaStore = require('../media/store');
+    mediaStore.cleanupRoom(roomId);
+  } catch (e) {
+    console.error(`[room] cleanup media for ${roomId} failed:`, e.message);
+  }
 
   console.log(`[room] destroyed ${roomId} (trigger=${triggerType}, actor=${actor ? actor.id : 'system'}, members=${memberCount}, msgs=${msgCount})`);
 
@@ -335,4 +450,5 @@ module.exports = {
   sendMessage,
   destroyRoom,
   editDestroyTime,
+  revokeMessage,
 };
