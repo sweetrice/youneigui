@@ -104,6 +104,52 @@ The codebase is designed as a **single-provider-with-extensible-architecture**. 
 
 ---
 
+## Media attachments (optional)
+
+Rooms support **image / audio / video / document** attachments, stored on the local filesystem and **automatically deleted when the room is destroyed**.
+
+| Type | Formats | Per-file limit |
+|------|---------|---------------|
+| Image | jpg / png / webp | 5 MB |
+| Audio | mp3 / wav | 20 MB |
+| Video | mp4 (HEVC auto-transcoded to H.264) | 50 MB |
+| Document | pdf / doc(x) / xls(x) / ppt(x) / txt / md / json / csv / zip | 20 MB |
+
+### Configuration
+
+```bash
+# .env
+MEDIA_STORAGE_ROOT=/data/youneigui-media   # attachment storage directory
+MEDIA_MAX_ROOM_BYTES=52428800              # per-room media quota, default 50MB, 0 = unlimited
+```
+
+> ⚠️ **If `MEDIA_STORAGE_ROOT` is not set, the whole attachment feature is disabled**: the upload route is not mounted and the frontend 📁 button hides itself. Ideal for text-only deployments.
+
+### Video transcoding (ffmpeg)
+
+Videos recorded on WeChat / iPhone are usually HEVC (H.265), which browsers can't play. The server detects this codec and **auto-transcodes to H.264**:
+
+```bash
+# Debian / Ubuntu
+apt-get install -y ffmpeg
+
+# macOS
+brew install ffmpeg
+```
+
+Without ffmpeg, HEVC videos can still be uploaded but may not play in some browsers.
+
+### Production notes
+
+With `NODE_ENV=production`, the following are **hard requirements** — the process refuses to start without them:
+
+- `SESSION_SECRET` must be set explicitly (e.g. `openssl rand -base64 32`)
+- Redis must be available (no more fallback to in-memory sessions)
+
+The mock login endpoint (`/auth/mock`) is also automatically disabled in production.
+
+---
+
 ## i18n (multi-language)
 
 Ships with **Chinese (default) + English**. Top-right toggle `EN / 中` stores the choice in `localStorage` and takes effect after refresh.
@@ -147,6 +193,7 @@ youneigui/
 │   ├── oauth/        # OAuth login module
 │   ├── room/         # Room (session) management module
 │   ├── ws/           # WebSocket realtime module
+│   ├── media/        # Media attachment storage + video transcoding module
 │   └── export/       # Markdown export module
 ├── public/           # Frontend static assets (single-page HTML + vanilla JS)
 ├── redis/            # Redis data model and scripts

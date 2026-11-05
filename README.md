@@ -101,6 +101,52 @@ GITHUB_CLIENT_SECRET=xxx
 
 ---
 
+## 媒体附件（可选功能）
+
+房间内支持发送 **图片 / 音频 / 视频 / 文档** 附件，存本地文件系统，**随房间销毁自动删除**。
+
+| 类型 | 支持格式 | 单文件上限 |
+|------|---------|-----------|
+| 图片 | jpg / png / webp | 5 MB |
+| 音频 | mp3 / wav | 20 MB |
+| 视频 | mp4（HEVC 自动转码 H.264） | 50 MB |
+| 文档 | pdf / doc(x) / xls(x) / ppt(x) / txt / md / json / csv / zip | 20 MB |
+
+### 配置
+
+```bash
+# .env
+MEDIA_STORAGE_ROOT=/data/youneigui-media   # 附件存储目录
+MEDIA_MAX_ROOM_BYTES=52428800              # 单房间附件总配额，默认 50MB，0 = 不限
+```
+
+> ⚠️ **不设置 `MEDIA_STORAGE_ROOT` 则附件功能整体关闭**：上传接口不挂载、前端 📁 按钮自动隐藏。适合纯文字部署。
+
+### 视频转码（ffmpeg）
+
+微信/ iPhone 录的视频多为 HEVC（H.265），浏览器无法播放。服务端检测到此编码会**自动转码为 H.264**：
+
+```bash
+# Debian / Ubuntu
+apt-get install -y ffmpeg
+
+# macOS
+brew install ffmpeg
+```
+
+未安装 ffmpeg 时 HEVC 视频仍可上传，但部分浏览器可能无法播放。
+
+### 生产环境注意
+
+`NODE_ENV=production` 时以下两项为**硬性要求**，缺失会直接拒绝启动：
+
+- `SESSION_SECRET` 必须显式设置（如 `openssl rand -base64 32`）
+- Redis 必须可用（不再降级到内存 Session）
+
+同时 Mock 登录入口（`/auth/mock`）在生产模式下自动关闭。
+
+---
+
 ## 多语言支持（i18n）
 
 当前内置 **中文（默认）+ 英文**，顶部导航栏有 `EN / 中` 切换按钮，选择后存 `localStorage`，刷新即生效。
@@ -142,6 +188,7 @@ youneigui/
 │   ├── oauth/        # OAuth 登录模块
 │   ├── room/         # 房间（会话）管理模块
 │   ├── ws/           # WebSocket 实时通信模块
+│   ├── media/        # 媒体附件存储 + 视频转码模块
 │   └── export/       # Markdown 导出模块
 ├── public/           # 前端静态资源（单页 HTML + 原生 JS）
 ├── redis/            # Redis 数据模型和脚本
