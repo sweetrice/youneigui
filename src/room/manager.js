@@ -171,6 +171,8 @@ async function rewriteMemberHash(roomId, user) {
 async function addMember(roomId, user) {
   const now = Date.now();
   await client.sadd(`room:${roomId}:members`, user.id);
+  // participants：累计进过房的所有人（leaveRoom 不移除），用于销毁时审计人数统计
+  await client.sadd(`room:${roomId}:participants`, user.id);
   await client.hset(`room:${roomId}:member:${user.id}`, {
     id: user.id,
     nickname: user.nickname,
@@ -185,6 +187,7 @@ async function addMember(roomId, user) {
     const ttl = Math.max(60, Math.floor((Number(meta.destroy_at) - now) / 1000) + 3600);
     await client.expire(`room:${roomId}:member:${user.id}`, ttl);
     await client.expire(`room:${roomId}:members`, ttl);
+    await client.expire(`room:${roomId}:participants`, ttl);
     // 同时刷新所有现有成员的 hash TTL，防止先加入者的 hash 先过期
     const existingIds = await client.smembers(`room:${roomId}:members`);
     if (existingIds.length > 1) {
@@ -364,7 +367,11 @@ async function destroyRoom(roomId, actor, triggerType = 'manual') {
 
   // 写入审计日志（用 ZSET，score=destroy_at，天然支持元素级过期清理）
   // 注意：不用 List + EXPIRE——因为每次 LPUSH 会刷新整个 List 的 TTL，导致永远不过期
-  const memberCount = await client.scard(`room:${roomId}:members`) || room.members.length;
+  // 审计人数统计：优先用 participants（累计进过房的人，不受中途退出影响），
+  // 旧房间没有 participants key 时回退 members（当前在线），再回退内存数据
+  const memberCount = await client.scard(`room:${roomId}:participants`)
+    || await client.scard(`room:${roomId}:members`)
+    || room.members.length;
   const msgCount = room.messages.length;
   const auditEntry = JSON.stringify({
     room_id: roomId,
