@@ -143,8 +143,6 @@ brew install ffmpeg
 - `SESSION_SECRET` 必须显式设置（如 `openssl rand -base64 32`）
 - Redis 必须可用（不再降级到内存 Session）
 
-同时 Mock 登录入口（`/auth/mock`）在生产模式下自动关闭。
-
 ---
 
 ## 多语言支持（i18n）

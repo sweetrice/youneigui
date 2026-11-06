@@ -146,8 +146,6 @@ With `NODE_ENV=production`, the following are **hard requirements** — the proc
 - `SESSION_SECRET` must be set explicitly (e.g. `openssl rand -base64 32`)
 - Redis must be available (no more fallback to in-memory sessions)
 
-The mock login endpoint (`/auth/mock`) is also automatically disabled in production.
-
 ---
 
 ## i18n (multi-language)
